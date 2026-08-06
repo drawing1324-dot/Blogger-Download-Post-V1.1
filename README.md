@@ -1,178 +1,459 @@
-# Blogger Download Auto Post V1.1
+ต่อครับ
 
-## Overview
+เข้าสู่ **Milestone 13 : User Manual / Documentation**
 
-Blogger Download Auto Post V1.1 is a lightweight automatic posting system for Blogger websites focused on downloadable resources such as:
+รอบนี้เป็น **การสร้างไฟล์ใหม่**
 
-* 3D Models
-* CAD Files
-* Vector Graphics
-* SVG
-* PSD
-* STL
-* SketchUp Models
-* SolidWorks Resources
-* Autodesk Resources
+เป้าหมาย:
 
-The primary goal of this project is simplicity, stability, and continuous automatic publishing.
+สร้างคู่มือใช้งานระบบ เพื่อให้คุณสามารถ:
 
-Version 1.1 intentionally avoids unnecessary complexity. Advanced features are reserved for Version 2.
+* เพิ่ม Blog เอง
+* ลด/เพิ่มจำนวนโพสต์
+* เปลี่ยนภาษา
+* เปลี่ยนแนว AI
+* เพิ่ม Account
+* แก้ปัญหาเบื้องต้น
 
----
-
-# Design Goals
-
-* Easy to install
-* Easy to configure
-* Easy to maintain
-* Easy to expand
-* Configuration driven
-* Minimal dependencies
+โดยไม่ต้องกลับมาแก้ Code
 
 ---
 
-# Main Features
+# [สร้างไฟล์]
 
-* Automatic Topic Generation
-* AI Article Writing
-* SEO Metadata
-* Automatic Labels
-* Download Source Collection
-* Image Collection
-* Blogger Auto Publish
-* Queue Management
-* GitHub Actions Support
+**Version : V1.1**
 
----
+**Milestone : 13**
 
-# Project Structure
+ไฟล์:
 
 ```text
-blogger-download-autopost-v1.1/
-
-config/
-data/
-modules/
-docs/
-
-main.py
-requirements.txt
 README.md
 ```
 
 ---
 
-# Supported Blogs
+```markdown
+# Blogger Download Auto Post V1.1
 
-Current Version supports:
+ระบบอัตโนมัติสำหรับสร้างและโพสต์บทความดาวน์โหลดไฟล์
 
-* Drawing and Graphics
-* Engineering 3DCad Application
-* Vector Graphic Free Downloads
-* SolidWorks Share
-* Autodesk Knowledge
+รองรับ:
 
-Additional blogs can be added later using configuration files.
+- 3D CAD Files
+- Vector Graphics
+- Drawing Files
+- Engineering Resources
+- Software / Knowledge Blog
+
 
 ---
 
-# Configuration Philosophy
+# 1. แนวคิดระบบ
 
-The project is designed so that almost every setting can be modified without editing Python source code.
 
-Users should normally edit files inside:
+ระบบทำงานแบบ:
 
-```text
-config/
+
 ```
 
-instead of changing program logic.
-
----
-
-# AI Provider
-
-Current Version
-
-* Google Gemini
-
-Future Versions may support additional providers.
-
----
-
-# Image Strategy
-
-Priority order
-
-1. Download source preview image
-2. Free image source
-3. No image
-
-AI image generation is intentionally excluded from Version 1.1.
-
----
-
-# Queue System
-
-Each blog maintains its own posting queue.
-
-Workflow
-
-Generate Topics
+GitHub Actions
 
 ↓
 
-Store Queue
+Python Engine
 
 ↓
 
-Write Article
+AI Topic Generator
 
 ↓
 
-Publish
+Queue System
 
 ↓
 
-Remove From Queue
+AI Article Writer
 
 ↓
 
-Continue
+Search Source
+
+↓
+
+Image Provider
+
+↓
+
+Blogger API
+
+↓
+
+Published Post
+
+```
+
 
 ---
 
-# Documentation
+# 2. โครงสร้างโปรเจกต์
 
-Detailed documentation is available in the docs folder.
+
+```
+
+project/
+
+│
+
+├── main.py
+
+├── test_system.py
+
+├── requirements.txt
+
+├── config/
+
+│
+├── blogs.json
+
+├── settings.json
+
+├── profiles.json
+
+├── prompts.json
+
+└── sources.json
+
+├── modules/
+
+│
+├── ai/
+
+├── blogger/
+
+├── core/
+
+├── image/
+
+└── search/
+
+├── storage/
+
+│
+├── queue/
+
+├── backup/
+
+├── logs/
+
+└── posted/
+
+└── .github/
+
+```
+└── workflows/
+
+    └── auto-post.yml
+```
+
+```
+
 
 ---
 
-# Version Policy
+# 3. การเพิ่ม Blog ใหม่
 
-Version 1.1 focuses only on production-ready features.
 
-Features intentionally excluded:
+แก้ไฟล์:
 
-* Dashboard
-* Database
-* Docker
-* Local AI
-* Stable Diffusion
+
+```
+
+config/blogs.json
+
+````
+
+
+ตัวอย่าง:
+
+
+```json
+{
+"name":"New Blog",
+
+"blog_id":"BLOG_ID",
+
+"language":"en",
+
+"type":"vector",
+
+"enabled":true
+}
+````
+
+ไม่ต้องแก้ Python
+
+---
+
+# 4. การเปิด / ปิด Blog
+
+ปิด:
+
+```json
+"enabled":false
+```
+
+เปิด:
+
+```json
+"enabled":true
+```
+
+---
+
+# 5. การเปลี่ยนจำนวนหัวข้อ
+
+ไฟล์:
+
+```
+config/settings.json
+```
+
+ค่า:
+
+```json
+"generate_topics_amount":50
+```
+
+ตัวอย่าง:
+
+สร้าง 100 หัวข้อ:
+
+```json
+"generate_topics_amount":100
+```
+
+---
+
+# 6. การควบคุมจำนวนโพสต์
+
+ไฟล์:
+
+```
+config/settings.json
+```
+
+ตัวอย่าง:
+
+โพสต์วันละ 1:
+
+```json
+"posts_per_run":1
+```
+
+โพสต์วันละ 5:
+
+```json
+"posts_per_run":5
+```
+
+---
+
+# 7. การเปลี่ยนแนวเขียน AI
+
+แก้:
+
+```
+config/prompts.json
+```
+
+ตัวอย่าง:
+
+เพิ่ม:
+
+```
+Explain technical details.
+Include download information.
+Use SEO keywords naturally.
+```
+
+---
+
+# 8. การเพิ่มแหล่งค้นหา
+
+แก้:
+
+```
+config/sources.json
+```
+
+ตัวอย่าง:
+
+```json
+"vector":
+
+[
+"SVG Repo",
+
+"Openclipart",
+
+"New Source"
+]
+```
+
+---
+
+# 9. GitHub Secrets
+
+ไปที่:
+
+```
+Repository
+
+↓
+
+Settings
+
+↓
+
+Secrets and variables
+
+↓
+
+Actions
+```
+
+เพิ่ม:
+
+```
+GEMINI_API_KEY
+
+
+MAIN_REFRESH_TOKEN
+
+
+MAIN_CLIENT_ID
+
+
+MAIN_CLIENT_SECRET
+```
+
+---
+
+# 10. ทดสอบระบบ
+
+ก่อนเปิด Auto Post:
+
+```
+python test_system.py
+```
+
+ตรวจสอบ:
+
+* Config
+* Queue
+* Secret
+* Module
+
+---
+
+# 11. การรันเอง
+
+เข้า:
+
+```
+GitHub
+
+↓
+
+Actions
+
+↓
+
+Blogger Auto Post V1.1
+
+↓
+
+Run Workflow
+```
+
+---
+
+# 12. ปัญหาที่พบบ่อย
+
+## Blogger Token หมดอายุ
+
+สร้าง OAuth Token ใหม่
+
+แล้วเปลี่ยน:
+
+```
+MAIN_REFRESH_TOKEN
+```
+
+---
+
+## AI ไม่สร้างบทความ
+
+ตรวจ:
+
+```
+GEMINI_API_KEY
+```
+
+---
+
+## ไม่โพสต์
+
+ตรวจ:
+
+```
+settings.json
+
+workflow.json
+```
+
+---
+
+# 13. การ Backup
+
+ระบบเก็บ Backup ที่:
+
+```
+storage/backup/
+```
+
+ก่อนประมวลผลทุกครั้ง
+
+---
+
+# 14. การพัฒนาต่อ Version 2
+
+สามารถเพิ่ม:
+
 * AI Image Generation
+* Dashboard
+* Web Admin
 * Analytics
-* Plugin System
+* Auto SEO
+* Internal Link
+* Multi Account Manager
 
-These features are planned for Version 2.
-
----
-
-# Development Principle
-
-If a feature does not directly help the system publish blog posts, it should not be included in Version 1.1.
+โดยไม่กระทบระบบหลัก
 
 ---
 
-# License
+# Version
 
-Private Project
+Current:
+
+```
+Blogger Download Auto Post V1.1
+```
+
+Status:
+
+```
+Ready For Testing
+```
+
