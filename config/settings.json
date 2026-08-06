@@ -1,23 +1,37 @@
 {
-  "system_name": "Blogger Download Auto Post",
+  "system_name": "Blogger Download Auto Post V1.1",
 
-  "version": "1.1",
 
-  "default_language": "en",
+  "queue": {
 
-  "topics_per_generation": 50,
+    "minimum_topics": 10,
 
-  "queue_refill_threshold": 10,
+    "generate_topics_amount": 50
 
-  "publish_interval_minutes": 180,
+  },
 
-  "retry_on_failure": true,
 
-  "max_retry": 3,
+  "article": {
 
-  "ai_provider": "gemini",
+    "default_status": "draft",
 
-  "image_mode": "hybrid",
+    "language": "auto"
 
-  "log_level": "INFO"
+  },
+
+
+  "schedule": {
+
+    "enabled": true,
+
+    "posts_per_run": 1
+
+  },
+
+
+  "image": {
+
+    "enabled": true
+
+  }
 }
