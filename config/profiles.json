@@ -1,7 +1,26 @@
 [
   {
     "name": "main",
+
+    "description": "Primary Blogger Account",
+
     "secret_prefix": "MAIN",
-    "enabled": true
+
+    "enabled": true,
+
+
+    "blogs": [
+
+      "4658195139325940334",
+
+      "3248958333629873920",
+
+      "4456956513683709739",
+
+      "6003642077965014412",
+
+      "3215973224989571942"
+
+    ]
   }
 ]
