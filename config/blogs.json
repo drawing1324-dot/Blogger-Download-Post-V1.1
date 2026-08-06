@@ -7,7 +7,6 @@
     "enabled": true
   },
 
-
   {
     "name": "Engineering 3DCad Application",
     "blog_id": "3248958333629873920",
@@ -16,15 +15,13 @@
     "enabled": true
   },
 
-
   {
-    "name": "vector graphic free downloads.",
+    "name": "Vector Graphic Free Downloads",
     "blog_id": "4456956513683709739",
     "language": "en",
     "type": "vector",
     "enabled": true
   },
-
 
   {
     "name": "SolidWorks Share",
@@ -34,9 +31,8 @@
     "enabled": true
   },
 
-
   {
-    "name": "Autodesk knowledge",
+    "name": "Autodesk Knowledge",
     "blog_id": "3215973224989571942",
     "language": "en",
     "type": "autodesk",
