@@ -1,0 +1,23 @@
+{
+  "system_name": "Blogger Download Auto Post",
+
+  "version": "1.1",
+
+  "default_language": "en",
+
+  "topics_per_generation": 50,
+
+  "queue_refill_threshold": 10,
+
+  "publish_interval_minutes": 180,
+
+  "retry_on_failure": true,
+
+  "max_retry": 3,
+
+  "ai_provider": "gemini",
+
+  "image_mode": "hybrid",
+
+  "log_level": "INFO"
+}
