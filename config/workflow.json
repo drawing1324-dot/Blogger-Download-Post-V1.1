@@ -1,23 +1,14 @@
 {
-  "mode": "production",
+  "generate_topics": true,
 
-  "steps": {
-    "generate_topics": true,
+  "search_download": true,
 
-    "search_download": true,
+  "write_article": true,
 
-    "write_article": true,
+  "find_images": true,
 
-    "find_images": true,
+  "publish": false,
 
-    "publish": true,
 
-    "archive": true
-  },
-
-  "testing": {
-    "publish": false,
-
-    "save_draft": true
-  }
+  "mode": "test"
 }
