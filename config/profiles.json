@@ -1,7 +1,7 @@
 [
   {
-    "name": "default",
-
-    "secret_prefix": "MAIN"
+    "name": "main",
+    "secret_prefix": "MAIN",
+    "enabled": true
   }
 ]
