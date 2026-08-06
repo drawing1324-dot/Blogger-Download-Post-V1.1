@@ -3,50 +3,43 @@
     "name": "Drawing and Graphics",
     "blog_id": "4658195139325940334",
     "language": "en",
-    "enabled": true,
-    "type": "drawing",
-    "profile": "main",
-    "posts_per_run": 1,
-    "priority": 1
+    "type": "graphics",
+    "enabled": true
   },
+
+
   {
     "name": "Engineering 3DCad Application",
     "blog_id": "3248958333629873920",
     "language": "en",
-    "enabled": true,
-    "type": "engineering",
-    "profile": "main",
-    "posts_per_run": 1,
-    "priority": 1
+    "type": "3dcad",
+    "enabled": true
   },
+
+
   {
-    "name": "Vector Graphic Free Downloads",
+    "name": "vector graphic free downloads.",
     "blog_id": "4456956513683709739",
     "language": "en",
-    "enabled": true,
     "type": "vector",
-    "profile": "main",
-    "posts_per_run": 1,
-    "priority": 1
+    "enabled": true
   },
+
+
   {
     "name": "SolidWorks Share",
     "blog_id": "6003642077965014412",
     "language": "en",
-    "enabled": true,
     "type": "solidworks",
-    "profile": "main",
-    "posts_per_run": 1,
-    "priority": 1
+    "enabled": true
   },
+
+
   {
-    "name": "Autodesk Knowledge",
+    "name": "Autodesk knowledge",
     "blog_id": "3215973224989571942",
     "language": "en",
-    "enabled": true,
     "type": "autodesk",
-    "profile": "main",
-    "posts_per_run": 1,
-    "priority": 1
+    "enabled": true
   }
 ]
