@@ -1,31 +1,60 @@
 {
-  "drawing": [
-    "OpenClipart",
-    "Freepik",
+  "graphics": [
+
+    "Behance",
+
+    "Dribbble",
+
+    "Openclipart",
+
     "Pixabay"
   ],
 
-  "engineering": [
+
+  "3dcad": [
+
     "GrabCAD",
-    "TraceParts",
-    "3D ContentCentral"
+
+    "3D ContentCentral",
+
+    "Sketchfab",
+
+    "Thingiverse"
   ],
 
+
   "vector": [
+
     "SVG Repo",
+
+    "Openclipart",
+
     "Vecteezy",
+
     "Freepik"
   ],
 
+
   "solidworks": [
+
     "GrabCAD",
+
     "3D ContentCentral",
-    "TraceParts"
+
+    "TraceParts",
+
+    "CADENAS"
   ],
 
+
   "autodesk": [
-    "Autodesk Knowledge Network",
+
+    "Autodesk Community",
+
     "Autodesk App Store",
-    "Autodesk Community"
+
+    "Autodesk Knowledge Network",
+
+    "GrabCAD"
   ]
 }
