@@ -1,26 +1,64 @@
 {
-  "drawing": {
-    "topic": "Generate 50 unique downloadable drawing and graphics topics.",
-    "article": "Write a complete SEO optimized article in English."
+  "graphics": {
+
+    "topic": 
+    "Generate 50 unique English blog topics about free drawing resources, graphic design files, illustration assets, and downloadable design materials. Focus on useful downloadable files.",
+
+
+    "article":
+
+    "Write an SEO friendly English article about downloadable graphic resources. Explain the file type, usage, benefits, and download information. Make the article useful for designers and creators."
   },
 
-  "engineering": {
-    "topic": "Generate 50 engineering CAD download topics.",
-    "article": "Write a complete SEO optimized article in English."
+
+  "3dcad": {
+
+    "topic":
+
+    "Generate 50 unique English topics about free 3D CAD models, engineering models, mechanical parts, and downloadable CAD files.",
+
+
+    "article":
+
+    "Write an SEO friendly English article about a downloadable 3D CAD file. Explain model details, compatible software, engineering applications, and download information."
   },
+
 
   "vector": {
-    "topic": "Generate 50 SVG and Vector download topics.",
-    "article": "Write a complete SEO optimized article in English."
+
+    "topic":
+
+    "Generate 50 unique English topics about free vector graphics, SVG files, icons, illustrations, and downloadable vector resources.",
+
+
+    "article":
+
+    "Write an SEO friendly English article about a free vector download. Explain file format, usage examples, design applications, and download details."
   },
+
 
   "solidworks": {
-    "topic": "Generate 50 SolidWorks downloadable model topics.",
-    "article": "Write a complete SEO optimized article in English."
+
+    "topic":
+
+    "Generate 50 unique English topics about SolidWorks CAD models, engineering components, assemblies, and downloadable SolidWorks files.",
+
+
+    "article":
+
+    "Write an SEO friendly English article about a SolidWorks downloadable model. Explain features, design purpose, compatibility, and engineering usage."
   },
 
+
   "autodesk": {
-    "topic": "Generate 50 Autodesk related download topics.",
-    "article": "Write a complete SEO optimized article in English."
+
+    "topic":
+
+    "Generate 50 unique English topics about Autodesk software, CAD resources, 3D models, tutorials, and downloadable design files.",
+
+
+    "article":
+
+    "Write an SEO friendly English article about Autodesk related resources. Explain software usage, file formats, design workflow, and useful information for users."
   }
 }
