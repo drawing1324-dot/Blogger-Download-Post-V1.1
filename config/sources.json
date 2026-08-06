@@ -1,0 +1,31 @@
+{
+  "drawing": [
+    "OpenClipart",
+    "Freepik",
+    "Pixabay"
+  ],
+
+  "engineering": [
+    "GrabCAD",
+    "TraceParts",
+    "3D ContentCentral"
+  ],
+
+  "vector": [
+    "SVG Repo",
+    "Vecteezy",
+    "Freepik"
+  ],
+
+  "solidworks": [
+    "GrabCAD",
+    "3D ContentCentral",
+    "TraceParts"
+  ],
+
+  "autodesk": [
+    "Autodesk Knowledge Network",
+    "Autodesk App Store",
+    "Autodesk Community"
+  ]
+}
