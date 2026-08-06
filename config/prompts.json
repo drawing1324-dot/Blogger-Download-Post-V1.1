@@ -1,0 +1,26 @@
+{
+  "drawing": {
+    "topic": "Generate 50 unique downloadable drawing and graphics topics.",
+    "article": "Write a complete SEO optimized article in English."
+  },
+
+  "engineering": {
+    "topic": "Generate 50 engineering CAD download topics.",
+    "article": "Write a complete SEO optimized article in English."
+  },
+
+  "vector": {
+    "topic": "Generate 50 SVG and Vector download topics.",
+    "article": "Write a complete SEO optimized article in English."
+  },
+
+  "solidworks": {
+    "topic": "Generate 50 SolidWorks downloadable model topics.",
+    "article": "Write a complete SEO optimized article in English."
+  },
+
+  "autodesk": {
+    "topic": "Generate 50 Autodesk related download topics.",
+    "article": "Write a complete SEO optimized article in English."
+  }
+}
