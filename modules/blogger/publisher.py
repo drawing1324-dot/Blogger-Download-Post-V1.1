@@ -182,7 +182,7 @@ class BloggerPublisher:
 
                     fetchBodies=False,
 
-                    orderBy="updated"
+                    orderBy="UPDATED"
                 )
             )
 
