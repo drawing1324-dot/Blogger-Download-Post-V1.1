@@ -1,21 +1,24 @@
 """
 Project : Blogger Download Auto Post V1.1
 Module  : Search Provider
-Version : 1.2.0
+
+Version : 1.1.2
 
 หน้าที่:
-- ค้นหาแหล่งดาวน์โหลดตาม source/domain
-- รองรับ DuckDuckGo HTML
-- รองรับ DuckDuckGo Lite fallback
-- ตรวจสอบ HTTP response
-- ตรวจสอบ URL ที่ได้จริง
-- ป้องกันการส่ง URL ปลอมเข้าสู่ Article Writer
+
+- ค้นหา source ตาม keyword
+- รองรับ source domain
+- ใช้ DuckDuckGo HTML / Lite
+- ตรวจสอบ domain ของผลลัพธ์
+- กรองผลลัพธ์ปลอมของ DuckDuckGo
+- รองรับ retry
+- ส่งผลลัพธ์กลับในรูปแบบมาตรฐาน
 """
 
-import html
 import re
 import urllib.parse
 from datetime import datetime
+from html import unescape
 
 import requests
 
@@ -46,66 +49,52 @@ class SearchProvider:
         "https://lite.duckduckgo.com/lite/",
     )
 
-    def __init__(
-        self,
-        config=None,
-        logger=None
-    ):
+    USER_AGENT = (
+        "Mozilla/5.0 "
+        "(Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 "
+        "(KHTML, like Gecko) "
+        "Chrome/131.0 Safari/537.36"
+    )
+
+    REQUEST_TIMEOUT = 15
+
+    def __init__(self, config=None, logger=None):
 
         self.config = config or {}
-
         self.logger = logger
 
-        self.session = requests.Session()
+    # ---------------------------------------------------------
+    # Logging
+    # ---------------------------------------------------------
 
-        self.session.headers.update(
-            {
-                "User-Agent": (
-                    "Mozilla/5.0 "
-                    "(X11; Linux x86_64) "
-                    "AppleWebKit/537.36 "
-                    "(KHTML, like Gecko) "
-                    "Chrome/131.0.0.0 "
-                    "Safari/537.36"
-                ),
-                "Accept": (
-                    "text/html,"
-                    "application/xhtml+xml,"
-                    "application/xml;q=0.9,"
-                    "*/*;q=0.8"
-                ),
-                "Accept-Language":
-                    "en-US,en;q=0.9",
-                "Cache-Control":
-                    "no-cache",
-            }
+    def _log_info(self, message, data=None):
+
+        if self.logger:
+            self.logger.info(message, data)
+
+    def _log_warning(self, message, data=None):
+
+        if self.logger:
+            self.logger.warning(message, data)
+
+    # ---------------------------------------------------------
+    # Source domain
+    # ---------------------------------------------------------
+
+    def get_source_domain(self, source):
+
+        if not source:
+            return None
+
+        return self.SOURCE_DOMAINS.get(
+            source,
+            source
         )
 
-    def _log_info(
-        self,
-        message,
-        data=None
-    ):
-
-        if self.logger:
-
-            self.logger.info(
-                message,
-                data
-            )
-
-    def _log_warning(
-        self,
-        message,
-        data=None
-    ):
-
-        if self.logger:
-
-            self.logger.warning(
-                message,
-                data
-            )
+    # ---------------------------------------------------------
+    # Search URL
+    # ---------------------------------------------------------
 
     def build_search_url(
         self,
@@ -114,56 +103,238 @@ class SearchProvider:
         endpoint=None
     ):
 
-        keyword = (
-            keyword or ""
-        ).strip()
-
-        query = keyword
-
-        if source:
-
-            domain = self.SOURCE_DOMAINS.get(
-                source,
-                source
-            )
-
-            if domain and "." in domain:
-
-                query += (
-                    f" site:{domain}"
-                )
-
         endpoint = (
             endpoint
             or self.SEARCH_ENDPOINTS[0]
         )
 
-        return (
-            endpoint
-            + "?"
-            + urllib.parse.urlencode(
-                {
-                    "q": query
-                }
-            )
+        query = str(keyword or "").strip()
+
+        domain = self.get_source_domain(
+            source
         )
 
-    @staticmethod
-    def _clean_title(
-        value
-    ):
+        if domain and "." in domain:
 
-        if not value:
+            query += f" site:{domain}"
+
+        return (
+            endpoint
+            + "?q="
+            + urllib.parse.quote_plus(query)
+        )
+
+    # ---------------------------------------------------------
+    # URL normalization
+    # ---------------------------------------------------------
+
+    @staticmethod
+    def _normalize_url(url):
+
+        if not url:
+            return None
+
+        url = unescape(
+            str(url).strip()
+        )
+
+        if url.startswith("//"):
+
+            url = "https:" + url
+
+        if not url.startswith(
+            ("http://", "https://")
+        ):
+
+            return None
+
+        # DuckDuckGo redirect URL
+        try:
+
+            parsed = urllib.parse.urlparse(
+                url
+            )
+
+            query = urllib.parse.parse_qs(
+                parsed.query
+            )
+
+            if "uddg" in query:
+
+                redirected = query["uddg"][0]
+
+                if redirected:
+
+                    url = urllib.parse.unquote(
+                        redirected
+                    )
+
+        except Exception:
+            pass
+
+        return url
+
+    # ---------------------------------------------------------
+    # Domain extraction
+    # ---------------------------------------------------------
+
+    @staticmethod
+    def _get_hostname(url):
+
+        if not url:
+            return ""
+
+        try:
+
+            parsed = urllib.parse.urlparse(
+                url
+            )
+
+            hostname = (
+                parsed.hostname
+                or ""
+            ).lower()
+
+            if hostname.startswith(
+                "www."
+            ):
+
+                hostname = hostname[4:]
+
+            return hostname
+
+        except Exception:
 
             return ""
 
-        value = html.unescape(
-            value
+    # ---------------------------------------------------------
+    # Domain validation
+    # ---------------------------------------------------------
+
+    @classmethod
+    def _domain_matches(
+        cls,
+        url,
+        source
+    ):
+
+        if not url:
+            return False
+
+        expected_domain = (
+            cls.SOURCE_DOMAINS.get(
+                source,
+                source
+            )
         )
+
+        if not expected_domain:
+            return True
+
+        expected_domain = (
+            expected_domain
+            .lower()
+            .strip()
+        )
+
+        if expected_domain.startswith(
+            "www."
+        ):
+
+            expected_domain = (
+                expected_domain[4:]
+            )
+
+        hostname = cls._get_hostname(
+            url
+        )
+
+        if not hostname:
+            return False
+
+        if hostname == expected_domain:
+            return True
+
+        return hostname.endswith(
+            "." + expected_domain
+        )
+
+    # ---------------------------------------------------------
+    # Invalid DuckDuckGo URLs
+    # ---------------------------------------------------------
+
+    @staticmethod
+    def _is_invalid_result_url(url):
+
+        if not url:
+            return True
+
+        normalized = url.lower().strip()
+
+        invalid_hosts = (
+            "duckduckgo.com",
+            "www.duckduckgo.com",
+        )
+
+        hostname = ""
+
+        try:
+
+            parsed = urllib.parse.urlparse(
+                normalized
+            )
+
+            hostname = (
+                parsed.hostname
+                or ""
+            ).lower()
+
+        except Exception:
+            pass
+
+        if hostname in invalid_hosts:
+            return True
+
+        invalid_urls = (
+            "duckduckgo.com/l/",
+            "duckduckgo.com/",
+            "duckduckgo.com/about",
+            "duckduckgo.com/settings",
+        )
+
+        for invalid in invalid_urls:
+
+            if normalized.startswith(
+                "https://" + invalid
+            ):
+
+                return True
+
+            if normalized.startswith(
+                "http://" + invalid
+            ):
+
+                return True
+
+        return False
+
+    # ---------------------------------------------------------
+    # HTML text cleanup
+    # ---------------------------------------------------------
+
+    @staticmethod
+    def _clean_text(value):
+
+        if not value:
+            return ""
 
         value = re.sub(
             r"<[^>]+>",
             "",
+            value
+        )
+
+        value = unescape(
             value
         )
 
@@ -175,373 +346,208 @@ class SearchProvider:
 
         return value.strip()
 
-    @staticmethod
-    def _clean_url(
-        value
-    ):
-
-        if not value:
-
-            return None
-
-        value = html.unescape(
-            value
-        ).strip()
-
-        if value.startswith("//"):
-
-            value = (
-                "https:"
-                + value
-            )
-
-        try:
-
-            parsed = urllib.parse.urlparse(
-                value
-            )
-
-            query = urllib.parse.parse_qs(
-                parsed.query
-            )
-
-            if (
-                parsed.netloc
-                and
-                (
-                    parsed.netloc.endswith(
-                        "duckduckgo.com"
-                    )
-                    or
-                    parsed.netloc.endswith(
-                        "duck.com"
-                    )
-                )
-            ):
-
-                uddg = query.get(
-                    "uddg"
-                )
-
-                if uddg:
-
-                    value = uddg[0]
-
-        except Exception:
-
-            return None
-
-        value = urllib.parse.unquote(
-            value
-        ).strip()
-
-        if not re.match(
-            r"^https?://",
-            value,
-            re.I
-        ):
-
-            return None
-
-        try:
-
-            parsed = urllib.parse.urlparse(
-                value
-            )
-
-            if not parsed.netloc:
-
-                return None
-
-        except Exception:
-
-            return None
-
-        return value
+    # ---------------------------------------------------------
+    # HTML result parser
+    # ---------------------------------------------------------
 
     @classmethod
-    def _extract_html_results(
-        cls,
-        page_html
-    ):
+    def _extract_results(cls, html):
 
         results = []
 
-        seen = set()
-
-        if not page_html:
-
+        if not html:
             return results
+
+        # -----------------------------------------------------
+        # Parser สำหรับ DuckDuckGo HTML
+        # -----------------------------------------------------
 
         patterns = [
 
-            re.compile(
-                r'<a[^>]*'
-                r'class=["\'][^"\']*result__a[^"\']*["\']'
-                r'[^>]*'
-                r'href=["\']([^"\']+)["\']'
-                r'[^>]*>'
-                r'(.*?)'
-                r'</a>',
-                re.I | re.S
-            ),
+            # Standard DuckDuckGo result
+            r"""
+            <a
+                [^>]*?
+                class=["'][^"']*result__a[^"']*["']
+                [^>]*?
+                href=["']([^"']+)["']
+                [^>]*>
+                (.*?)
+                </a>
+            """,
 
-            re.compile(
-                r'<a[^>]*'
-                r'href=["\']([^"\']+)["\']'
-                r'[^>]*'
-                r'class=["\'][^"\']*result__a[^"\']*["\']'
-                r'[^>]*>'
-                r'(.*?)'
-                r'</a>',
-                re.I | re.S
-            ),
+            # Generic result link
+            r"""
+            <a
+                [^>]*?
+                href=["']([^"']+)["']
+                [^>]*?
+                class=["'][^"']*result__a[^"']*["']
+                [^>]*>
+                (.*?)
+                </a>
+            """,
 
-            re.compile(
-                r'<a[^>]+href=["\']([^"\']+)["\'][^>]*>'
-                r'(.*?)'
-                r'</a>',
-                re.I | re.S
-            ),
         ]
+
+        seen = set()
 
         for pattern in patterns:
 
-            for match in pattern.finditer(
-                page_html
-            ):
+            matches = re.finditer(
+                pattern,
+                html,
+                re.I | re.S | re.X
+            )
 
-                url = cls._clean_url(
-                    match.group(1)
-                )
+            for match in matches:
 
-                title = cls._clean_title(
-                    match.group(2)
-                )
+                try:
+
+                    url = cls._normalize_url(
+                        match.group(1)
+                    )
+
+                    title = cls._clean_text(
+                        match.group(2)
+                    )
+
+                except Exception:
+                    continue
 
                 if not url:
-
                     continue
 
-                if not title:
-
-                    continue
-
-                if url in seen:
-
-                    continue
-
-                seen.add(
+                if cls._is_invalid_result_url(
                     url
-                )
+                ):
+                    continue
+
+                key = url.lower()
+
+                if key in seen:
+                    continue
+
+                seen.add(key)
 
                 results.append(
                     {
                         "title": title,
-                        "url": url
+                        "url": url,
+                    }
+                )
+
+        # -----------------------------------------------------
+        # Lite DuckDuckGo parser
+        # -----------------------------------------------------
+
+        if not results:
+
+            lite_pattern = r"""
+                <a
+                    [^>]*?
+                    href=["']([^"']+)["']
+                    [^>]*>
+                    (.*?)
+                    </a>
+            """
+
+            matches = re.finditer(
+                lite_pattern,
+                html,
+                re.I | re.S | re.X
+            )
+
+            for match in matches:
+
+                try:
+
+                    url = cls._normalize_url(
+                        match.group(1)
+                    )
+
+                    title = cls._clean_text(
+                        match.group(2)
+                    )
+
+                except Exception:
+                    continue
+
+                if not url:
+                    continue
+
+                if cls._is_invalid_result_url(
+                    url
+                ):
+                    continue
+
+                # Lite page มี link อื่นจำนวนมาก
+                # จึงรับเฉพาะ URL ที่ดูเหมือน external result
+                hostname = cls._get_hostname(
+                    url
+                )
+
+                if not hostname:
+                    continue
+
+                key = url.lower()
+
+                if key in seen:
+                    continue
+
+                seen.add(key)
+
+                results.append(
+                    {
+                        "title": title,
+                        "url": url,
                     }
                 )
 
         return results
 
+    # ---------------------------------------------------------
+    # Filter source results
+    # ---------------------------------------------------------
+
     @classmethod
-    def _extract_lite_results(
+    def _filter_source_results(
         cls,
-        page_html
+        results,
+        source
     ):
 
-        results = []
+        filtered = []
 
-        seen = set()
+        for result in results:
 
-        if not page_html:
-
-            return results
-
-        pattern = re.compile(
-            r'<a[^>]+href=["\']([^"\']+)["\'][^>]*>'
-            r'(.*?)'
-            r'</a>',
-            re.I | re.S
-        )
-
-        for match in pattern.finditer(
-            page_html
-        ):
-
-            url = cls._clean_url(
-                match.group(1)
-            )
-
-            title = cls._clean_title(
-                match.group(2)
+            url = result.get(
+                "url"
             )
 
             if not url:
-
                 continue
 
-            if not title:
-
-                continue
-
-            if url in seen:
-
-                continue
-
-            seen.add(
+            if cls._is_invalid_result_url(
                 url
-            )
+            ):
+                continue
 
-            results.append(
-                {
-                    "title": title,
-                    "url": url
-                }
-            )
-
-        return results
-
-    def _extract_results(
-        self,
-        page_html
-    ):
-
-        results = (
-            self._extract_html_results(
-                page_html
-            )
-        )
-
-        if results:
-
-            return results
-
-        return (
-            self._extract_lite_results(
-                page_html
-            )
-        )
-
-    def _source_domain(
-        self,
-        source
-    ):
-
-        if not source:
-
-            return None
-
-        return (
-            self.SOURCE_DOMAINS.get(
-                source,
+            if not cls._domain_matches(
+                url,
                 source
-            )
-            or ""
-        ).lower().strip()
+            ):
+                continue
 
-    def _source_matches(
-        self,
-        url,
-        source
-    ):
-
-        if not url:
-
-            return False
-
-        domain = self._source_domain(
-            source
-        )
-
-        if not domain:
-
-            return True
-
-        try:
-
-            hostname = (
-                urllib.parse
-                .urlparse(url)
-                .hostname
-                or ""
-            ).lower()
-
-        except Exception:
-
-            return False
-
-        return (
-            hostname == domain
-            or
-            hostname.endswith(
-                "." + domain
-            )
-        )
-
-    def _diagnose_response(
-        self,
-        response
-    ):
-
-        text = (
-            response.text
-            or ""
-        )
-
-        lowered = text.lower()
-
-        blocked = False
-
-        reasons = []
-
-        if response.status_code in (
-            403,
-            429
-        ):
-
-            blocked = True
-
-            reasons.append(
-                f"http_{response.status_code}"
+            filtered.append(
+                result
             )
 
-        block_markers = (
-            "captcha",
-            "unusual traffic",
-            "automated",
-            "robot check",
-            "access denied",
-            "rate limit",
-            "too many requests",
-        )
+        return filtered
 
-        for marker in block_markers:
-
-            if marker in lowered:
-
-                blocked = True
-
-                reasons.append(
-                    marker
-                )
-
-        return {
-            "status_code":
-                response.status_code,
-
-            "final_url":
-                response.url,
-
-            "content_length":
-                len(text),
-
-            "blocked":
-                blocked,
-
-            "reasons":
-                reasons,
-        }
+    # ---------------------------------------------------------
+    # Request
+    # ---------------------------------------------------------
 
     def _request(
         self,
@@ -559,50 +565,74 @@ class SearchProvider:
         self._log_info(
             "Search request started",
             {
-                "keyword":
-                    keyword,
-
-                "source":
-                    source,
-
-                "endpoint":
-                    endpoint,
-
-                "url":
-                    url
+                "keyword": keyword,
+                "source": source,
+                "endpoint": endpoint,
+                "url": url,
             }
         )
 
-        response = self.session.get(
+        response = requests.get(
             url,
-            timeout=20,
-            allow_redirects=True
-        )
-
-        diagnosis = (
-            self._diagnose_response(
-                response
-            )
-        )
-
-        self._log_info(
-            "Search HTTP response",
-            {
-                **diagnosis,
-                "source":
-                    source
-            }
+            headers={
+                "User-Agent":
+                    self.USER_AGENT,
+                "Accept":
+                    "text/html,"
+                    "application/xhtml+xml,"
+                    "application/xml;q=0.9,"
+                    "*/*;q=0.8",
+                "Accept-Language":
+                    "en-US,en;q=0.9",
+                "Referer":
+                    "https://duckduckgo.com/",
+            },
+            timeout=self.REQUEST_TIMEOUT,
+            allow_redirects=True,
         )
 
         response.raise_for_status()
 
+        html = response.text or ""
+
+        self._log_info(
+            "Search HTTP response",
+            {
+                "status_code":
+                    response.status_code,
+
+                "final_url":
+                    response.url,
+
+                "content_length":
+                    len(html),
+
+                "source":
+                    source,
+            }
+        )
+
         return response
+
+    # ---------------------------------------------------------
+    # Search
+    # ---------------------------------------------------------
 
     def search(
         self,
         keyword,
         source=None
     ):
+
+        checked_at = (
+            datetime.now()
+            .isoformat()
+        )
+
+        search_url = self.build_search_url(
+            keyword,
+            source
+        )
 
         result = {
 
@@ -613,10 +643,7 @@ class SearchProvider:
                 source or "search",
 
             "search_url":
-                self.build_search_url(
-                    keyword,
-                    source
-                ),
+                search_url,
 
             "found_url":
                 None,
@@ -625,16 +652,20 @@ class SearchProvider:
                 [],
 
             "checked_at":
-                datetime.now().isoformat(),
+                checked_at,
 
-            "endpoint":
-                None,
+            "result_count":
+                0,
 
-            "diagnosis":
-                None,
+            "success":
+                False,
         }
 
-        last_error = None
+        last_diagnosis = {}
+
+        # -----------------------------------------------------
+        # Search endpoints
+        # -----------------------------------------------------
 
         for endpoint in self.SEARCH_ENDPOINTS:
 
@@ -646,71 +677,58 @@ class SearchProvider:
                     endpoint
                 )
 
-                result["endpoint"] = (
-                    endpoint
-                )
+                html = response.text or ""
 
-                result["search_url"] = (
-                    response.url
-                )
-
-                result["diagnosis"] = (
-                    self._diagnose_response(
-                        response
-                    )
-                )
-
-                results = (
+                raw_results = (
                     self._extract_results(
-                        response.text
+                        html
                     )
                 )
 
-                if not results:
-
-                    self._log_warning(
-                        "Search parser found no results",
-                        {
-                            "keyword":
-                                keyword,
-
-                            "source":
-                                source,
-
-                            "endpoint":
-                                endpoint,
-
-                            "diagnosis":
-                                result[
-                                    "diagnosis"
-                                ]
-                        }
-                    )
-
-                    continue
-
-                result["results"] = (
-                    results[:10]
-                )
-
-                matching = []
-
-                for candidate in results:
-
-                    if self._source_matches(
-                        candidate["url"],
+                source_results = (
+                    self._filter_source_results(
+                        raw_results,
                         source
-                    ):
+                    )
+                )
 
-                        matching.append(
-                            candidate
-                        )
+                last_diagnosis = {
 
-                if matching:
+                    "status_code":
+                        response.status_code,
+
+                    "final_url":
+                        response.url,
+
+                    "content_length":
+                        len(html),
+
+                    "raw_result_count":
+                        len(raw_results),
+
+                    "source_result_count":
+                        len(source_results),
+                }
+
+                # -------------------------------------------------
+                # Found matching source
+                # -------------------------------------------------
+
+                if source_results:
+
+                    result["results"] = (
+                        source_results[:5]
+                    )
+
+                    result["result_count"] = (
+                        len(source_results)
+                    )
 
                     result["found_url"] = (
-                        matching[0]["url"]
+                        source_results[0]["url"]
                     )
+
+                    result["success"] = True
 
                     self._log_info(
                         "Search source matched",
@@ -721,49 +739,73 @@ class SearchProvider:
                             "source":
                                 source,
 
+                            "result_count":
+                                len(
+                                    source_results
+                                ),
+
                             "found_url":
                                 result[
                                     "found_url"
                                 ],
-
-                            "result_count":
-                                len(results),
-
-                            "matching_count":
-                                len(matching),
-
-                            "endpoint":
-                                endpoint
                         }
                     )
 
                     return result
 
-                self._log_warning(
-                    "Search results found but source did not match",
-                    {
-                        "keyword":
-                            keyword,
+                # -------------------------------------------------
+                # Raw result exists but wrong domain
+                # -------------------------------------------------
 
-                        "source":
-                            source,
+                if raw_results:
 
-                        "result_count":
-                            len(results),
+                    self._log_warning(
+                        "Search results found "
+                        "but source did not match",
+                        {
+                            "keyword":
+                                keyword,
 
-                        "results":
-                            results[:5]
-                    }
-                )
+                            "source":
+                                source,
+
+                            "raw_result_count":
+                                len(
+                                    raw_results
+                                ),
+
+                            "results":
+                                raw_results[:5],
+                        }
+                    )
+
+                else:
+
+                    self._log_warning(
+                        "Search returned no "
+                        "usable results",
+                        {
+                            "keyword":
+                                keyword,
+
+                            "source":
+                                source,
+                        }
+                    )
 
             except Exception as error:
 
-                last_error = str(
-                    error
-                )
+                last_diagnosis = {
+
+                    "endpoint":
+                        endpoint,
+
+                    "error":
+                        str(error),
+                }
 
                 self._log_warning(
-                    "Search endpoint failed",
+                    "Search request failed",
                     {
                         "keyword":
                             keyword,
@@ -775,18 +817,21 @@ class SearchProvider:
                             endpoint,
 
                         "error":
-                            last_error
+                            str(error),
                     }
                 )
 
-        if last_error:
+        # -----------------------------------------------------
+        # Nothing found
+        # -----------------------------------------------------
 
-            result["error"] = (
-                last_error
-            )
+        result["diagnosis"] = (
+            last_diagnosis
+        )
 
         self._log_warning(
-            "Search completed without matching source",
+            "Search completed without "
+            "matching source",
             {
                 "keyword":
                     keyword,
@@ -795,15 +840,13 @@ class SearchProvider:
                     source,
 
                 "result_count":
-                    len(
-                        result["results"]
-                    ),
+                    result["result_count"],
 
                 "found_url":
-                    result["found_url"],
+                    None,
 
                 "diagnosis":
-                    result["diagnosis"]
+                    last_diagnosis,
             }
         )
 
