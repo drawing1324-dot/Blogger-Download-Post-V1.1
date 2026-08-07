@@ -1,10 +1,11 @@
 """
 Project : Blogger Download Auto Post V1.1
 Module  : Logger
-Version : 1.1.0
+Version : 1.1.1
 
 หน้าที่:
 - สร้าง Log การทำงาน
+- แสดง Log บน Console (GitHub Actions)
 - เก็บ Log แบบ JSONL
 """
 
@@ -15,7 +16,6 @@ from pathlib import Path
 
 class Logger:
 
-
     def __init__(self, log_path="storage/logs"):
 
         self.log_path = Path(log_path)
@@ -24,7 +24,6 @@ class Logger:
             parents=True,
             exist_ok=True
         )
-
 
     def write(
         self,
@@ -35,13 +34,9 @@ class Logger:
 
         now = datetime.now()
 
-        filename = (
-            now.strftime("%Y-%m-%d")
-            + ".jsonl"
-        )
+        filename = now.strftime("%Y-%m-%d") + ".jsonl"
 
         file_path = self.log_path / filename
-
 
         record = {
             "time": now.isoformat(),
@@ -50,7 +45,16 @@ class Logger:
             "data": data
         }
 
+        # แสดงบน GitHub Actions
+        print(
+            json.dumps(
+                record,
+                ensure_ascii=False
+            ),
+            flush=True
+        )
 
+        # บันทึกลงไฟล์
         with open(
             file_path,
             "a",
@@ -65,8 +69,11 @@ class Logger:
                 + "\n"
             )
 
-
-    def info(self, message, data=None):
+    def info(
+        self,
+        message,
+        data=None
+    ):
 
         self.write(
             "INFO",
@@ -74,20 +81,26 @@ class Logger:
             data
         )
 
-
-    def error(self, message, data=None):
+    def warning(
+        self,
+        message,
+        data=None
+    ):
 
         self.write(
-            "ERROR",
+            "WARNING",
             message,
             data
         )
 
-
-    def warning(self, message, data=None):
+    def error(
+        self,
+        message,
+        data=None
+    ):
 
         self.write(
-            "WARNING",
+            "ERROR",
             message,
             data
         )
