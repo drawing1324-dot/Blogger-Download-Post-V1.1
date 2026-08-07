@@ -1,16 +1,16 @@
 """
 Project : Blogger Download Auto Post V1.1
-Module  : Image Provider
-
+Module  : Search Provider
 Version : 1.1.2
 
 หน้าที่:
 
-- ค้นหารูปภาพจาก source URL
-- รองรับ fallback image search
-- ตรวจสอบว่า URL เป็น image จริง
-- ไม่ยอมรับ PDF / HTML / search page เป็น image
-- ป้องกัน URL รูปเสียก่อนส่งให้ ArticleWriter
+- ค้นหาแหล่งดาวน์โหลดผ่าน DuckDuckGo HTML
+- รองรับการค้นหาแบบระบุ source/domain
+- รองรับ fallback endpoint
+- ตรวจสอบผลลัพธ์ให้ตรงกับ source
+- คืนค่า found_url และ results
+- เขียน Log การทำงาน
 """
 
 import re
@@ -20,888 +20,719 @@ from datetime import datetime
 import requests
 
 
-class ImageProvider:
+class SearchProvider:
+    """
+    Search provider สำหรับระบบ Blogger Download Auto Post V1.1
 
-    IMAGE_EXTENSIONS = (
-        ".jpg",
-        ".jpeg",
-        ".png",
-        ".webp",
-        ".gif",
-        ".bmp",
-        ".svg",
-        ".avif",
+    ใช้ DuckDuckGo HTML/Lite โดยไม่ต้องใช้ API key
+    """
+
+    SOURCE_DOMAINS = {
+        "Behance": "behance.net",
+        "Dribbble": "dribbble.com",
+        "Openclipart": "openclipart.org",
+        "Pixabay": "pixabay.com",
+        "GrabCAD": "grabcad.com",
+        "3D ContentCentral": "3dcontentcentral.com",
+        "Sketchfab": "sketchfab.com",
+        "Thingiverse": "thingiverse.com",
+        "SVG Repo": "svgrepo.com",
+        "Vecteezy": "vecteezy.com",
+        "Freepik": "freepik.com",
+        "TraceParts": "traceparts.com",
+        "CADENAS": "cadenas.de",
+        "Autodesk Community": "forums.autodesk.com",
+        "Autodesk App Store": "apps.autodesk.com",
+        "Autodesk Knowledge Network": "autodesk.com",
+    }
+
+    ENDPOINTS = (
+        "https://html.duckduckgo.com/html/",
+        "https://lite.duckduckgo.com/lite/",
     )
 
-    IMAGE_CONTENT_TYPES = (
-        "image/jpeg",
-        "image/png",
-        "image/webp",
-        "image/gif",
-        "image/bmp",
-        "image/svg+xml",
-        "image/avif",
-    )
-
-    BLOCKED_EXTENSIONS = (
-        ".pdf",
-        ".html",
-        ".htm",
-        ".txt",
-        ".zip",
-        ".rar",
-        ".7z",
-        ".doc",
-        ".docx",
-        ".xls",
-        ".xlsx",
-    )
-
-    SEARCH_ENDPOINTS = (
-        "https://www.google.com/search",
-        "https://www.bing.com/images/search",
+    USER_AGENT = (
+        "Mozilla/5.0 (X11; Linux x86_64) "
+        "AppleWebKit/537.36 "
+        "(KHTML, like Gecko) "
+        "Chrome/131.0.0.0 Safari/537.36"
     )
 
     def __init__(self, config=None, logger=None):
-
         self.config = config or {}
         self.logger = logger
 
         self.timeout = (
             self.config
-            .get("image", {})
+            .get("search", {})
             .get("timeout", 15)
         )
 
-        self.session = requests.Session()
-
-        self.session.headers.update(
-            {
-                "User-Agent": (
-                    "Mozilla/5.0 "
-                    "(Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 "
-                    "(KHTML, like Gecko) "
-                    "Chrome/131.0 Safari/537.36"
-                ),
-                "Accept": (
-                    "text/html,application/xhtml+xml,"
-                    "application/xml;q=0.9,image/avif,"
-                    "image/webp,image/apng,*/*;q=0.8"
-                ),
-                "Accept-Language": "en-US,en;q=0.9",
-            }
+        self.max_results = (
+            self.config
+            .get("search", {})
+            .get("max_results", 5)
         )
 
-    # ---------------------------------------------------------
+    # =========================================================
     # Logging
-    # ---------------------------------------------------------
+    # =========================================================
 
     def _log_info(self, message, data=None):
-
         if self.logger:
-            self.logger.info(
-                message,
-                data
-            )
+            self.logger.info(message, data)
 
     def _log_warning(self, message, data=None):
-
         if self.logger:
-            self.logger.warning(
-                message,
-                data
+            self.logger.warning(message, data)
+
+    def _log_error(self, message, data=None):
+        if self.logger:
+            self.logger.error(message, data)
+
+    # =========================================================
+    # Search URL
+    # =========================================================
+
+    def build_search_url(self, keyword, source=None, endpoint=None):
+        """
+        สร้าง URL สำหรับ DuckDuckGo
+        """
+
+        query = str(keyword or "").strip()
+
+        if source:
+            domain = self.SOURCE_DOMAINS.get(
+                source,
+                source
             )
 
-    # ---------------------------------------------------------
-    # URL helpers
-    # ---------------------------------------------------------
+            if domain and "." in domain:
+                query += f" site:{domain}"
 
-    @classmethod
-    def _is_blocked_extension(cls, url):
-
-        if not url:
-            return True
-
-        try:
-            parsed = urllib.parse.urlparse(url)
-
-            path = (
-                parsed.path
-                or ""
-            ).lower()
-
-            return path.endswith(
-                cls.BLOCKED_EXTENSIONS
-            )
-
-        except Exception:
-
-            return True
-
-    @classmethod
-    def _has_image_extension(cls, url):
-
-        if not url:
-            return False
-
-        try:
-            parsed = urllib.parse.urlparse(url)
-
-            path = (
-                parsed.path
-                or ""
-            ).lower()
-
-            return path.endswith(
-                cls.IMAGE_EXTENSIONS
-            )
-
-        except Exception:
-
-            return False
-
-    @classmethod
-    def _is_valid_http_url(cls, url):
-
-        if not url:
-            return False
-
-        try:
-
-            parsed = urllib.parse.urlparse(
-                url
-            )
-
-            if parsed.scheme not in (
-                "http",
-                "https",
-            ):
-                return False
-
-            if not parsed.netloc:
-                return False
-
-            return True
-
-        except Exception:
-
-            return False
-
-    # ---------------------------------------------------------
-    # Content type validation
-    # ---------------------------------------------------------
-
-    @classmethod
-    def _is_image_content_type(cls, content_type):
-
-        if not content_type:
-            return False
-
-        content_type = (
-            content_type
-            .split(";")[0]
-            .strip()
-            .lower()
-        )
+        base_url = endpoint or self.ENDPOINTS[0]
 
         return (
-            content_type
-            in cls.IMAGE_CONTENT_TYPES
+            base_url
+            + "?q="
+            + urllib.parse.quote_plus(query)
         )
 
-    # ---------------------------------------------------------
-    # Direct image validation
-    # ---------------------------------------------------------
-
-    def validate_image_url(self, url):
-
-        if not self._is_valid_http_url(
-            url
-        ):
-
-            return {
-                "valid": False,
-                "reason": "invalid_url",
-                "url": url,
-            }
-
-        if self._is_blocked_extension(
-            url
-        ):
-
-            return {
-                "valid": False,
-                "reason": "blocked_extension",
-                "url": url,
-            }
-
-        try:
-
-            response = self.session.head(
-                url,
-                allow_redirects=True,
-                timeout=self.timeout,
-            )
-
-            content_type = (
-                response.headers
-                .get(
-                    "Content-Type",
-                    ""
-                )
-            )
-
-            if (
-                response.status_code
-                >= 400
-            ):
-
-                self._log_warning(
-                    "Image URL rejected",
-                    {
-                        "url": url,
-                        "status_code":
-                            response.status_code,
-                    }
-                )
-
-                return {
-                    "valid": False,
-                    "reason": "http_error",
-                    "status_code":
-                        response.status_code,
-                    "url": url,
-                }
-
-            if self._is_image_content_type(
-                content_type
-            ):
-
-                return {
-                    "valid": True,
-                    "reason": "image_content_type",
-                    "url":
-                        response.url or url,
-                    "content_type":
-                        content_type,
-                }
-
-            if self._has_image_extension(
-                url
-            ):
-
-                return {
-                    "valid": True,
-                    "reason": "image_extension",
-                    "url":
-                        response.url or url,
-                    "content_type":
-                        content_type,
-                }
-
-            return {
-                "valid": False,
-                "reason": "not_an_image",
-                "url": url,
-                "content_type":
-                    content_type,
-            }
-
-        except requests.RequestException as error:
-
-            self._log_warning(
-                "Image URL validation failed",
-                {
-                    "url": url,
-                    "error": str(error),
-                }
-            )
-
-            return {
-                "valid": False,
-                "reason": "request_failed",
-                "url": url,
-                "error": str(error),
-            }
-
-    # ---------------------------------------------------------
-    # GET validation
-    # ---------------------------------------------------------
-
-    def _validate_image_with_get(
-        self,
-        url
-    ):
-
-        if not self._is_valid_http_url(
-            url
-        ):
-
-            return None
-
-        if self._is_blocked_extension(
-            url
-        ):
-
-            return None
-
-        try:
-
-            response = self.session.get(
-                url,
-                allow_redirects=True,
-                stream=True,
-                timeout=self.timeout,
-            )
-
-            content_type = (
-                response.headers
-                .get(
-                    "Content-Type",
-                    ""
-                )
-            )
-
-            final_url = (
-                response.url
-                or url
-            )
-
-            if (
-                response.status_code
-                >= 400
-            ):
-
-                return None
-
-            if self._is_image_content_type(
-                content_type
-            ):
-
-                return {
-                    "url": final_url,
-                    "content_type":
-                        content_type,
-                    "status_code":
-                        response.status_code,
-                }
-
-            return None
-
-        except requests.RequestException:
-
-            return None
-
-    # ---------------------------------------------------------
-    # Wikimedia
-    # ---------------------------------------------------------
-
-    def _extract_wikimedia_image(
-        self,
-        url
-    ):
-
-        if not url:
-            return None
-
-        if (
-            "wikimedia.org"
-            not in url
-            and
-            "wikipedia.org"
-            not in url
-        ):
-
-            return None
-
-        if self._is_blocked_extension(
-            url
-        ):
-
-            self._log_warning(
-                "Wikimedia source is not a direct image",
-                {
-                    "url": url,
-                }
-            )
-
-            return None
-
-        validation = (
-            self._validate_image_with_get(
-                url
-            )
-        )
-
-        if validation:
-
-            return validation["url"]
-
-        return None
-
-    # ---------------------------------------------------------
-    # Source image
-    # ---------------------------------------------------------
-
-    def _find_source_image(
-        self,
-        source_url
-    ):
-
-        if not source_url:
-            return None
-
-        self._log_info(
-            "Checking source image",
-            {
-                "url": source_url,
-            }
-        )
-
-        if self._is_blocked_extension(
-            source_url
-        ):
-
-            self._log_warning(
-                "Source is not an image",
-                {
-                    "url": source_url,
-                }
-            )
-
-            return None
-
-        validation = (
-            self.validate_image_url(
-                source_url
-            )
-        )
-
-        if validation.get(
-            "valid"
-        ):
-
-            return validation.get(
-                "url"
-            )
-
-        direct = (
-            self._validate_image_with_get(
-                source_url
-            )
-        )
-
-        if direct:
-
-            return direct.get(
-                "url"
-            )
-
-        return self._extract_wikimedia_image(
-            source_url
-        )
-
-    # ---------------------------------------------------------
-    # Search query
-    # ---------------------------------------------------------
+    # =========================================================
+    # Domain helpers
+    # =========================================================
 
     @staticmethod
-    def _build_query(keyword):
+    def _normalize_domain(value):
+        """
+        แปลง URL/domain ให้เหลือ hostname
+        """
 
-        keyword = (
-            keyword
-            or ""
-        ).strip()
-
-        if not keyword:
+        if not value:
             return ""
 
-        return (
-            keyword
-            + " free image"
-        )
+        value = str(value).strip()
 
-    # ---------------------------------------------------------
-    # Google image result extraction
-    # ---------------------------------------------------------
-
-    @staticmethod
-    def _extract_google_images(
-        html
-    ):
-
-        results = []
-
-        if not html:
-            return results
-
-        patterns = [
-            r'"(https?://[^"]+\.(?:jpg|jpeg|png|webp|gif))"',
-            r'"ou":"(https?://[^"]+)"',
-        ]
-
-        for pattern in patterns:
-
-            for match in re.finditer(
-                pattern,
-                html,
-                re.I
-            ):
-
-                url = match.group(1)
-
-                url = (
-                    url
-                    .replace(
-                        "\\/",
-                        "/"
-                    )
-                    .replace(
-                        "\\u003d",
-                        "="
-                    )
-                    .replace(
-                        "\\u0026",
-                        "&"
-                    )
-                )
-
-                if (
-                    url
-                    and
-                    url not in results
-                ):
-
-                    results.append(
-                        url
-                    )
-
-        return results
-
-    # ---------------------------------------------------------
-    # Bing image result extraction
-    # ---------------------------------------------------------
-
-    @staticmethod
-    def _extract_bing_images(
-        html
-    ):
-
-        results = []
-
-        if not html:
-            return results
-
-        patterns = [
-            r'"murl":"(https?://[^"]+)"',
-            r'"turl":"(https?://[^"]+)"',
-        ]
-
-        for pattern in patterns:
-
-            for match in re.finditer(
-                pattern,
-                html,
-                re.I
-            ):
-
-                url = match.group(1)
-
-                url = (
-                    url
-                    .replace(
-                        "\\/",
-                        "/"
-                    )
-                    .replace(
-                        "\\u0026",
-                        "&"
-                    )
-                )
-
-                if (
-                    url
-                    and
-                    url not in results
-                ):
-
-                    results.append(
-                        url
-                    )
-
-        return results
-
-    # ---------------------------------------------------------
-    # Search provider
-    # ---------------------------------------------------------
-
-    def _search_engine(
-        self,
-        endpoint,
-        keyword
-    ):
-
-        query = self._build_query(
-            keyword
-        )
-
-        if not query:
-            return []
+        if not value.startswith(
+            ("http://", "https://")
+        ):
+            value = "https://" + value
 
         try:
+            parsed = urllib.parse.urlparse(value)
 
-            response = self.session.get(
-                endpoint,
-                params={
-                    "q": query,
-                },
-                timeout=self.timeout,
-            )
+            hostname = (
+                parsed.hostname
+                or ""
+            ).lower()
 
-            response.raise_for_status()
+            if hostname.startswith("www."):
+                hostname = hostname[4:]
 
-            html = response.text
+            return hostname
 
-            if "google.com" in endpoint:
+        except Exception:
+            return ""
 
-                return self._extract_google_images(
-                    html
-                )
-
-            return self._extract_bing_images(
-                html
-            )
-
-        except requests.RequestException as error:
-
-            self._log_warning(
-                "Image search engine failed",
-                {
-                    "endpoint":
-                        endpoint,
-                    "keyword":
-                        keyword,
-                    "error":
-                        str(error),
-                }
-            )
-
-            return []
-
-    # ---------------------------------------------------------
-    # Search images
-    # ---------------------------------------------------------
-
-    def _search_images(
-        self,
-        keyword
+    @classmethod
+    def _url_matches_source(
+        cls,
+        url,
+        source
     ):
+        """
+        ตรวจสอบว่า URL มาจาก source ที่ร้องขอหรือไม่
+        """
 
-        candidates = []
+        if not url or not source:
+            return False
 
-        for endpoint in self.SEARCH_ENDPOINTS:
+        expected_domain = cls.SOURCE_DOMAINS.get(
+            source,
+            source
+        )
 
-            results = (
-                self._search_engine(
-                    endpoint,
-                    keyword
-                )
+        expected_domain = cls._normalize_domain(
+            expected_domain
+        )
+
+        actual_domain = cls._normalize_domain(
+            url
+        )
+
+        if not expected_domain:
+            return False
+
+        if not actual_domain:
+            return False
+
+        return (
+            actual_domain == expected_domain
+            or actual_domain.endswith(
+                "." + expected_domain
+            )
+        )
+
+    # =========================================================
+    # HTML cleanup
+    # =========================================================
+
+    @staticmethod
+    def _clean_text(value):
+        """
+        ล้าง HTML และ whitespace จาก title
+        """
+
+        if not value:
+            return ""
+
+        value = re.sub(
+            r"<[^>]+>",
+            "",
+            value
+        )
+
+        value = (
+            value
+            .replace("&amp;", "&")
+            .replace("&quot;", '"')
+            .replace("&#39;", "'")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+        )
+
+        value = re.sub(
+            r"\s+",
+            " ",
+            value
+        )
+
+        return value.strip()
+
+    # =========================================================
+    # URL extraction
+    # =========================================================
+
+    @staticmethod
+    def _unwrap_url(url):
+        """
+        แกะ URL redirect ของ DuckDuckGo
+        """
+
+        if not url:
+            return None
+
+        url = url.strip()
+
+        if url.startswith("//"):
+            url = "https:" + url
+
+        try:
+            parsed = urllib.parse.urlparse(url)
+
+            query = urllib.parse.parse_qs(
+                parsed.query
             )
 
-            for url in results:
-
-                if url not in candidates:
-
-                    candidates.append(
-                        url
+            for key in (
+                "uddg",
+                "url",
+                "target"
+            ):
+                if key in query and query[key]:
+                    decoded = urllib.parse.unquote(
+                        query[key][0]
                     )
 
-                if len(candidates) >= 20:
+                    if decoded:
+                        return decoded
 
-                    break
+        except Exception:
+            pass
 
-            if len(candidates) >= 20:
+        return url
 
-                break
+    # =========================================================
+    # Result parser
+    # =========================================================
 
-        return candidates
+    @classmethod
+    def _extract_results(cls, html):
+        """
+        ดึงผลลัพธ์จาก DuckDuckGo HTML
 
-    # ---------------------------------------------------------
-    # Validate candidates
-    # ---------------------------------------------------------
+        รองรับทั้งรูปแบบ result__a
+        และรูปแบบที่พบใน DuckDuckGo Lite
+        """
 
-    def _find_valid_candidate(
-        self,
-        candidates
-    ):
+        results = []
 
-        for url in candidates:
-
-            if not self._is_valid_http_url(
-                url
-            ):
-
-                continue
-
-            if self._is_blocked_extension(
-                url
-            ):
-
-                continue
-
-            result = (
-                self._validate_image_with_get(
-                    url
-                )
-            )
-
-            if result:
-
-                return result.get(
-                    "url"
-                )
-
-        return None
-
-    # ---------------------------------------------------------
-    # Public method
-    # ---------------------------------------------------------
-
-    def find_image(
-        self,
-        keyword,
-        source_url=None
-    ):
-
-        checked_at = (
-            datetime.now()
-            .isoformat()
-        )
-
-        self._log_info(
-            "Starting image search",
-            {
-                "keyword": keyword,
-                "source_url": source_url,
-            }
-        )
+        if not html:
+            return results
 
         # -----------------------------------------------------
-        # 1. Try source URL
+        # DuckDuckGo HTML
         # -----------------------------------------------------
 
-        if source_url:
+        patterns = [
+            r'<a[^>]+class=["\'][^"\']*result__a[^"\']*["\'][^>]+href=["\']([^"\']+)["\'][^>]*>(.*?)</a>',
 
-            source_image = (
-                self._find_source_image(
-                    source_url
+            r'<a[^>]+href=["\']([^"\']+)["\'][^>]*class=["\'][^"\']*result__a[^"\']*["\'][^>]*>(.*?)</a>',
+        ]
+
+        for pattern in patterns:
+
+            for match in re.finditer(
+                pattern,
+                html,
+                re.I | re.S
+            ):
+
+                url = cls._unwrap_url(
+                    match.group(1)
                 )
-            )
 
-            if source_image:
+                title = cls._clean_text(
+                    match.group(2)
+                )
 
-                self._log_info(
-                    "Source image accepted",
+                if not url:
+                    continue
+
+                if not title:
+                    continue
+
+                results.append(
                     {
-                        "url":
-                            source_image,
+                        "title": title,
+                        "url": url
                     }
                 )
 
-                return {
-                    "image_url":
-                        source_image,
-                    "provider":
-                        "source",
-                    "status":
-                        "found",
-                    "checked_at":
-                        checked_at,
-                }
-
-            self._log_warning(
-                "Source image unavailable",
-                {
-                    "url":
-                        source_url,
-                }
-            )
-
         # -----------------------------------------------------
-        # 2. Fallback image search
+        # DuckDuckGo Lite
         # -----------------------------------------------------
 
-        candidates = (
-            self._search_images(
-                keyword
+        if not results:
+
+            lite_pattern = (
+                r'<a[^>]+href=["\']'
+                r'([^"\']+)'
+                r'["\'][^>]*>'
+                r'(.*?)'
+                r'</a>'
             )
+
+            for match in re.finditer(
+                lite_pattern,
+                html,
+                re.I | re.S
+            ):
+
+                url = cls._unwrap_url(
+                    match.group(1)
+                )
+
+                title = cls._clean_text(
+                    match.group(2)
+                )
+
+                if not url:
+                    continue
+
+                if not title:
+                    continue
+
+                # ไม่เอา navigation link
+                if (
+                    "duckduckgo.com"
+                    in (
+                        cls._normalize_domain(url)
+                        or ""
+                    )
+                ):
+                    continue
+
+                results.append(
+                    {
+                        "title": title,
+                        "url": url
+                    }
+                )
+
+        # -----------------------------------------------------
+        # Remove duplicates
+        # -----------------------------------------------------
+
+        unique = []
+        seen = set()
+
+        for item in results:
+
+            url = item.get("url")
+
+            if not url:
+                continue
+
+            key = url.lower()
+
+            if key in seen:
+                continue
+
+            seen.add(key)
+            unique.append(item)
+
+        return unique
+
+    # =========================================================
+    # Filter source
+    # =========================================================
+
+    @classmethod
+    def _filter_source_results(
+        cls,
+        results,
+        source
+    ):
+        """
+        คัดเฉพาะ URL ที่ตรงกับ source
+        """
+
+        if not source:
+            return results
+
+        matched = []
+
+        for item in results:
+
+            url = item.get("url")
+
+            if cls._url_matches_source(
+                url,
+                source
+            ):
+                matched.append(item)
+
+        return matched
+
+    # =========================================================
+    # Single request
+    # =========================================================
+
+    def _request(
+        self,
+        keyword,
+        source,
+        endpoint
+    ):
+        """
+        ยิง request ไปยัง endpoint เดียว
+        """
+
+        url = self.build_search_url(
+            keyword,
+            source,
+            endpoint
         )
 
         self._log_info(
-            "Image search candidates collected",
+            "Search request started",
             {
-                "keyword":
-                    keyword,
-                "candidate_count":
-                    len(candidates),
+                "keyword": keyword,
+                "source": source,
+                "endpoint": endpoint,
+                "url": url
             }
         )
 
-        image_url = (
-            self._find_valid_candidate(
-                candidates
-            )
+        response = requests.get(
+            url,
+            headers={
+                "User-Agent": self.USER_AGENT,
+                "Accept": (
+                    "text/html,"
+                    "application/xhtml+xml,"
+                    "application/xml;q=0.9,"
+                    "*/*;q=0.8"
+                ),
+                "Accept-Language": (
+                    "en-US,en;q=0.9"
+                ),
+                "Referer": (
+                    "https://duckduckgo.com/"
+                ),
+            },
+            timeout=self.timeout
         )
 
-        if image_url:
+        content = response.text or ""
 
-            self._log_info(
-                "Image search completed",
+        self._log_info(
+            "Search HTTP response",
+            {
+                "status_code": response.status_code,
+                "final_url": response.url,
+                "content_length": len(content),
+                "source": source
+            }
+        )
+
+        response.raise_for_status()
+
+        return content, response
+
+    # =========================================================
+    # Main search
+    # =========================================================
+
+    def search(
+        self,
+        keyword,
+        source=None
+    ):
+        """
+        ค้นหา source
+
+        คืนค่า:
+
+        {
+            keyword,
+            source,
+            search_url,
+            found_url,
+            results,
+            checked_at
+        }
+        """
+
+        result = {
+            "keyword": keyword,
+            "source": source or "search",
+            "search_url": self.build_search_url(
+                keyword,
+                source
+            ),
+            "found_url": None,
+            "results": [],
+            "checked_at": datetime.now().isoformat(),
+        }
+
+        diagnosis = {
+            "attempts": []
+        }
+
+        # -----------------------------------------------------
+        # Validate keyword
+        # -----------------------------------------------------
+
+        if not keyword:
+            self._log_warning(
+                "Search skipped - empty keyword",
                 {
-                    "keyword":
-                        keyword,
-                    "image_url":
-                        image_url,
-                    "provider":
-                        "image_search",
-                    "status":
-                        "found",
+                    "source": source
                 }
             )
 
-            return {
-                "image_url":
-                    image_url,
-                "provider":
-                    "image_search",
-                "status":
-                    "found",
-                "checked_at":
-                    checked_at,
-            }
+            return result
 
         # -----------------------------------------------------
-        # 3. No image
+        # Try endpoints
+        # -----------------------------------------------------
+
+        for endpoint in self.ENDPOINTS:
+
+            attempt = {
+                "endpoint": endpoint,
+                "status_code": None,
+                "content_length": 0,
+                "error": None,
+            }
+
+            try:
+
+                html, response = self._request(
+                    keyword,
+                    source,
+                    endpoint
+                )
+
+                attempt["status_code"] = (
+                    response.status_code
+                )
+
+                attempt["content_length"] = len(
+                    html or ""
+                )
+
+                all_results = (
+                    self._extract_results(html)
+                )
+
+                matched_results = (
+                    self._filter_source_results(
+                        all_results,
+                        source
+                    )
+                )
+
+                attempt["result_count"] = len(
+                    all_results
+                )
+
+                attempt["matched_count"] = len(
+                    matched_results
+                )
+
+                diagnosis["attempts"].append(
+                    attempt
+                )
+
+                # -------------------------------------------------
+                # Source matched
+                # -------------------------------------------------
+
+                if matched_results:
+
+                    result["results"] = (
+                        matched_results[
+                            :self.max_results
+                        ]
+                    )
+
+                    result["found_url"] = (
+                        result["results"][0]["url"]
+                    )
+
+                    result["search_url"] = (
+                        self.build_search_url(
+                            keyword,
+                            source,
+                            endpoint
+                        )
+                    )
+
+                    self._log_info(
+                        "Search source matched",
+                        {
+                            "keyword": keyword,
+                            "source": source,
+                            "result_count": len(
+                                all_results
+                            ),
+                            "found_url": (
+                                result["found_url"]
+                            )
+                        }
+                    )
+
+                    return result
+
+                # -------------------------------------------------
+                # Results exist but wrong source
+                # -------------------------------------------------
+
+                if all_results:
+
+                    self._log_warning(
+                        "Search results found but source did not match",
+                        {
+                            "keyword": keyword,
+                            "source": source,
+                            "result_count": len(
+                                all_results
+                            ),
+                            "results": all_results[
+                                :self.max_results
+                            ]
+                        }
+                    )
+
+                else:
+
+                    self._log_warning(
+                        "Search returned no results",
+                        {
+                            "keyword": keyword,
+                            "source": source
+                        }
+                    )
+
+            except requests.RequestException as error:
+
+                attempt["error"] = str(error)
+
+                diagnosis["attempts"].append(
+                    attempt
+                )
+
+                self._log_warning(
+                    "Search request failed",
+                    {
+                        "keyword": keyword,
+                        "source": source,
+                        "endpoint": endpoint,
+                        "error": str(error)
+                    }
+                )
+
+            except Exception as error:
+
+                attempt["error"] = str(error)
+
+                diagnosis["attempts"].append(
+                    attempt
+                )
+
+                self._log_error(
+                    "Search parsing failed",
+                    {
+                        "keyword": keyword,
+                        "source": source,
+                        "endpoint": endpoint,
+                        "error": str(error)
+                    }
+                )
+
+        # -----------------------------------------------------
+        # Nothing matched
         # -----------------------------------------------------
 
         self._log_warning(
-            "No valid image found",
+            "Search completed without matching source",
             {
-                "keyword":
-                    keyword,
-                "source_url":
-                    source_url,
+                "keyword": keyword,
+                "source": source,
+                "result_count": len(
+                    result["results"]
+                ),
+                "found_url": result["found_url"],
+                "diagnosis": diagnosis
             }
         )
 
-        return {
-            "image_url":
-                None,
-            "provider":
-                None,
-            "status":
-                "not_found",
-            "checked_at":
-                checked_at,
-        }
+        return result
+
+
+__all__ = [
+    "SearchProvider"
+]
