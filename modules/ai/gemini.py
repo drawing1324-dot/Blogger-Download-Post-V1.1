@@ -1,14 +1,7 @@
-```python
 """
 Project : Blogger Download Auto Post V1.1
 Module  : Gemini AI Provider
 Version : 1.1.1
-
-หน้าที่:
-- เชื่อมต่อ Gemini API
-- ส่ง Prompt
-- รับผลลัพธ์จาก AI
-- รองรับ Google Gen AI SDK รุ่นใหม่
 """
 
 import os
@@ -17,30 +10,17 @@ import time
 
 class GeminiAI:
 
-    def __init__(
-        self,
-        api_key=None,
-        logger=None
-    ):
-
-        self.api_key = (
-            api_key
-            or os.getenv("GEMINI_API_KEY")
-        )
-
+    def __init__(self, api_key=None, logger=None):
+        self.api_key = api_key or os.getenv("GEMINI_API_KEY")
         self.logger = logger
-
         self.client = None
 
     def connect(self):
 
         if not self.api_key:
-            raise Exception(
-                "Missing GEMINI_API_KEY"
-            )
+            raise Exception("Missing GEMINI_API_KEY")
 
         try:
-
             from google import genai
 
             self.client = genai.Client(
@@ -48,9 +28,7 @@ class GeminiAI:
             )
 
             if self.logger:
-                self.logger.info(
-                    "Gemini connected"
-                )
+                self.logger.info("Gemini connected")
 
             return True
 
@@ -59,18 +37,12 @@ class GeminiAI:
             if self.logger:
                 self.logger.error(
                     "Gemini connection failed",
-                    {
-                        "error": str(error)
-                    }
+                    {"error": str(error)}
                 )
 
             raise error
 
-    def generate(
-        self,
-        prompt,
-        retry=3
-    ):
+    def generate(self, prompt, retry=3):
 
         if not self.client:
             self.connect()
@@ -81,18 +53,12 @@ class GeminiAI:
 
             try:
 
-                response = (
-                    self.client.models.generate_content(
-                        model="gemini-2.5-flash",
-                        contents=prompt
-                    )
+                response = self.client.models.generate_content(
+                    model="gemini-2.5-flash",
+                    contents=prompt
                 )
 
-                text = getattr(
-                    response,
-                    "text",
-                    None
-                )
+                text = getattr(response, "text", None)
 
                 if not text:
                     raise Exception(
@@ -120,4 +86,3 @@ class GeminiAI:
         raise Exception(
             f"Gemini generation failed: {last_error}"
         )
-```
