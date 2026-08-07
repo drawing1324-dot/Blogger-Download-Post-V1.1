@@ -7,10 +7,11 @@ Version : 1.2.0
 
 - เชื่อมต่อ Blogger API
 - สร้างบทความ
-- ตั้งเวลาโพสต์
-- Publish หรือ Save Draft
-- ตรวจหาเวลาของโพสต์ล่าสุด
-- ตั้งโพสต์ใหม่ต่อจากเวลาล่าสุด 1 ชั่วโมง
+- สร้าง Draft
+- กำหนดเวลาการเผยแพร่
+- หาเวลาของโพสต์ล่าสุด
+- ตั้งเวลาโพสต์ใหม่หลังโพสต์ล่าสุด 1 ชั่วโมง
+- ป้องกันการ Publish ทันทีโดยไม่ตั้งเวลา
 """
 
 import os
@@ -26,14 +27,12 @@ class BloggerPublisher:
     ):
 
         self.profile = profile
-
         self.logger = logger
-
         self.service = None
 
 
     # =========================================================
-    # Logger helper
+    # Logger
     # =========================================================
 
     def _log(
@@ -53,6 +52,7 @@ class BloggerPublisher:
         )
 
         if method:
+
             method(
                 message,
                 data
@@ -60,7 +60,7 @@ class BloggerPublisher:
 
 
     # =========================================================
-    # Blogger Connection
+    # Connect Blogger
     # =========================================================
 
     def connect(self):
@@ -157,91 +157,155 @@ class BloggerPublisher:
 
 
     # =========================================================
-    # Ensure Connection
+    # Get Latest Post
     # =========================================================
 
-    def _ensure_connection(self):
+    def get_latest_post(
+        self,
+        blog_id
+    ):
 
         if not self.service:
 
             self.connect()
 
 
-    # =========================================================
-    # Get All Existing Posts
-    # =========================================================
-
-    def _get_existing_posts(
-        self,
-        blog_id
-    ):
-
-        self._ensure_connection()
-
-
-        posts = []
-
-        page_token = None
-
-
         try:
 
-            while True:
+            request = (
+                self.service
+                .posts()
+                .list(
+                    blogId=blog_id,
 
-                request = (
-                    self.service
-                    .posts()
-                    .list(
-                        blogId=blog_id,
-                        maxResults=100,
-                        pageToken=page_token,
-                        fetchBodies=False
+                    maxResults=50,
+
+                    fetchBodies=False,
+
+                    orderBy="updated"
+                )
+            )
+
+
+            response = request.execute()
+
+
+            posts = response.get(
+                "items",
+                []
+            )
+
+
+            if not posts:
+
+                self._log(
+                    "info",
+                    "No existing Blogger posts found",
+                    {
+                        "blog_id": blog_id
+                    }
+                )
+
+                return None
+
+
+            valid_posts = []
+
+
+            for post in posts:
+
+                published = post.get(
+                    "published"
+                )
+
+
+                if not published:
+
+                    continue
+
+
+                try:
+
+                    published_dt = (
+                        self._parse_datetime(
+                            published
+                        )
                     )
+
+
+                    valid_posts.append(
+                        (
+                            published_dt,
+                            post
+                        )
+                    )
+
+
+                except Exception as error:
+
+                    self._log(
+                        "warning",
+                        "Unable to parse Blogger post date",
+                        {
+                            "post_id": post.get("id"),
+                            "published": published,
+                            "error": str(error)
+                        }
+                    )
+
+
+            if not valid_posts:
+
+                self._log(
+                    "info",
+                    "No valid published dates found",
+                    {
+                        "blog_id": blog_id
+                    }
                 )
 
-
-                response = request.execute()
-
-
-                items = response.get(
-                    "items",
-                    []
-                )
+                return None
 
 
-                posts.extend(
-                    items
-                )
+            valid_posts.sort(
+                key=lambda item: item[0],
+                reverse=True
+            )
 
 
-                page_token = response.get(
-                    "nextPageToken"
-                )
+            latest_datetime, latest_post = (
+                valid_posts[0]
+            )
 
 
-                if not page_token:
-
-                    break
+            result = {
+                "id": latest_post.get("id"),
+                "title": latest_post.get("title"),
+                "published": latest_post.get("published"),
+                "datetime": latest_datetime
+            }
 
 
             self._log(
                 "info",
-                "Existing Blogger posts loaded",
+                "Latest Blogger post found",
                 {
                     "blog_id": blog_id,
-                    "post_count": len(posts)
+                    "post_id": result["id"],
+                    "title": result["title"],
+                    "published": result["published"]
                 }
             )
 
 
-            return posts
+            return result
 
 
         except Exception as error:
 
             self._log(
                 "error",
-                "Failed to load existing Blogger posts",
+                "Failed to get latest Blogger post",
                 {
                     "blog_id": blog_id,
                     "error_type": type(error).__name__,
@@ -257,167 +321,47 @@ class BloggerPublisher:
     # =========================================================
 
     @staticmethod
-    def _parse_blogger_datetime(
+    def _parse_datetime(
         value
     ):
 
         if not value:
 
-            return None
-
-
-        try:
-
-            normalized = value.replace(
-                "Z",
-                "+00:00"
+            raise ValueError(
+                "Empty datetime value"
             )
 
 
-            parsed = datetime.fromisoformat(
-                normalized
+        normalized = value.strip()
+
+
+        if normalized.endswith(
+            "Z"
+        ):
+
+            normalized = (
+                normalized[:-1]
+                + "+00:00"
             )
 
 
-            if parsed.tzinfo is None:
-
-                parsed = parsed.replace(
-                    tzinfo=timezone.utc
-                )
-
-
-            return parsed.astimezone(
-                timezone.utc
-            )
-
-
-        except Exception:
-
-            return None
-
-
-    # =========================================================
-    # Find Latest Scheduled / Published Time
-    # =========================================================
-
-    def get_latest_post_time(
-        self,
-        blog_id
-    ):
-
-        posts = self._get_existing_posts(
-            blog_id
+        result = datetime.fromisoformat(
+            normalized
         )
 
 
-        latest_time = None
+        if result.tzinfo is None:
 
-        latest_post = None
-
-
-        for post in posts:
-
-            status = str(
-                post.get(
-                    "status",
-                    ""
-                )
-            ).upper()
-
-
-            # สนใจทั้งโพสต์ที่ตั้งเวลาไว้แล้ว
-            # และโพสต์ที่เผยแพร่แล้ว
-            if status not in (
-                "SCHEDULED",
-                "LIVE"
-            ):
-
-                continue
-
-
-            candidate_values = [
-
-                post.get(
-                    "published"
-                ),
-
-                post.get(
-                    "updated"
-                )
-
-            ]
-
-
-            candidate_time = None
-
-
-            for value in candidate_values:
-
-                parsed = (
-                    self._parse_blogger_datetime(
-                        value
-                    )
-                )
-
-
-                if parsed:
-
-                    candidate_time = parsed
-
-                    break
-
-
-            if not candidate_time:
-
-                continue
-
-
-            if (
-                latest_time is None
-                or candidate_time > latest_time
-            ):
-
-                latest_time = candidate_time
-
-                latest_post = post
-
-
-        if latest_time:
-
-            self._log(
-                "info",
-                "Latest Blogger post time found",
-                {
-                    "blog_id": blog_id,
-                    "latest_time": latest_time.isoformat(),
-                    "latest_post_id": (
-                        latest_post or {}
-                    ).get("id"),
-                    "latest_post_status": (
-                        latest_post or {}
-                    ).get("status"),
-                    "latest_post_title": (
-                        latest_post or {}
-                    ).get("title")
-                }
-            )
-
-        else:
-
-            self._log(
-                "info",
-                "No existing published or scheduled post time found",
-                {
-                    "blog_id": blog_id
-                }
+            result = result.replace(
+                tzinfo=timezone.utc
             )
 
 
-        return latest_time
+        return result
 
 
     # =========================================================
-    # Calculate Next Schedule Time
+    # Calculate Next Schedule
     # =========================================================
 
     def get_next_schedule_time(
@@ -430,63 +374,82 @@ class BloggerPublisher:
         )
 
 
-        latest_time = (
-            self.get_latest_post_time(
-                blog_id
-            )
+        latest = self.get_latest_post(
+            blog_id
         )
 
 
-        if latest_time:
+        if latest:
 
-            next_time = (
-                latest_time
+            latest_datetime = latest[
+                "datetime"
+            ]
+
+
+            next_datetime = (
+                latest_datetime
                 + timedelta(hours=1)
             )
 
-        else:
 
-            next_time = (
+            # ถ้าเวลาของโพสต์ล่าสุดอยู่ในอดีต
+            # และ +1 ชั่วโมงยังอยู่ในอดีต
+            # ต้องเลื่อนไปข้างหน้าเพื่อไม่ให้
+            # Blogger รับเวลาที่ผ่านมาแล้ว
+
+            minimum_time = (
                 now
-                + timedelta(hours=1)
+                + timedelta(minutes=1)
             )
 
 
-        # ป้องกันกรณีโพสต์ล่าสุดอยู่ในอดีตมาก
-        # และเวลาที่คำนวณได้ยังน้อยกว่าปัจจุบัน
-        minimum_time = (
+            if next_datetime <= minimum_time:
+
+                next_datetime = (
+                    minimum_time
+                )
+
+
+            self._log(
+                "info",
+                "Next schedule calculated from latest post",
+                {
+                    "latest_post": latest.get("title"),
+                    "latest_time": (
+                        latest_datetime.isoformat()
+                    ),
+                    "scheduled_time": (
+                        next_datetime.isoformat()
+                    )
+                }
+            )
+
+
+            return next_datetime
+
+
+        next_datetime = (
             now
-            + timedelta(minutes=1)
+            + timedelta(hours=1)
         )
-
-
-        if next_time < minimum_time:
-
-            next_time = minimum_time
 
 
         self._log(
             "info",
-            "Next Blogger schedule time calculated",
+            "No previous post found; schedule one hour from now",
             {
-                "blog_id": blog_id,
-                "latest_time": (
-                    latest_time.isoformat()
-                    if latest_time
-                    else None
-                ),
-                "next_schedule_time": (
-                    next_time.isoformat()
+                "scheduled_time": (
+                    next_datetime.isoformat()
                 )
             }
         )
 
 
-        return next_time
+        return next_datetime
 
 
     # =========================================================
-    # Publish / Schedule
+    # Create Scheduled Post
     # =========================================================
 
     def publish(
@@ -497,99 +460,28 @@ class BloggerPublisher:
         publish=True
     ):
 
-        self._ensure_connection()
+        if not self.service:
 
-
-        if not blog_id:
-
-            raise ValueError(
-                "Missing Blogger Blog ID"
-            )
-
-
-        if not title:
-
-            raise ValueError(
-                "Missing Blogger post title"
-            )
-
-
-        if not content:
-
-            raise ValueError(
-                "Missing Blogger post content"
-            )
-
-
-        body = {
-
-            "title": title,
-
-            "content": content
-
-        }
+            self.connect()
 
 
         # -----------------------------------------------------
-        # Scheduled Post
+        # Safety:
+        #
+        # publish=False = Draft เท่านั้น
+        #
+        # publish=True = สร้างและ Schedule
+        #
+        # จะไม่มีการส่ง LIVE ทันทีจาก insert()
         # -----------------------------------------------------
 
-        if publish:
+        if not publish:
 
-            schedule_time = (
-                self.get_next_schedule_time(
-                    blog_id
-                )
-            )
+            body = {
+                "title": title,
+                "content": content
+            }
 
-
-            body["published"] = (
-                schedule_time.isoformat()
-                .replace(
-                    "+00:00",
-                    "Z"
-                )
-            )
-
-
-            body["status"] = "SCHEDULED"
-
-
-            self._log(
-                "info",
-                "Creating scheduled Blogger post",
-                {
-                    "blog_id": blog_id,
-                    "title": title,
-                    "scheduled_time": body["published"]
-                }
-            )
-
-
-        # -----------------------------------------------------
-        # Draft
-        # -----------------------------------------------------
-
-        else:
-
-            body["status"] = "DRAFT"
-
-
-            self._log(
-                "info",
-                "Creating Blogger draft",
-                {
-                    "blog_id": blog_id,
-                    "title": title
-                }
-            )
-
-
-        # -----------------------------------------------------
-        # Insert
-        # -----------------------------------------------------
-
-        try:
 
             result = (
                 self.service
@@ -597,7 +489,68 @@ class BloggerPublisher:
                 .insert(
                     blogId=blog_id,
                     body=body,
-                    isDraft=not publish
+                    isDraft=True
+                )
+                .execute()
+            )
+
+
+            self._log(
+                "info",
+                "Blogger draft created",
+                {
+                    "blog_id": blog_id,
+                    "post_id": result.get("id"),
+                    "title": title
+                }
+            )
+
+
+            return result
+
+
+        # -----------------------------------------------------
+        # Calculate schedule
+        # -----------------------------------------------------
+
+        scheduled_datetime = (
+            self.get_next_schedule_time(
+                blog_id
+            )
+        )
+
+
+        scheduled_iso = (
+            scheduled_datetime
+            .astimezone(timezone.utc)
+            .isoformat()
+            .replace(
+                "+00:00",
+                "Z"
+            )
+        )
+
+
+        # -----------------------------------------------------
+        # Step 1:
+        # Create as Draft first
+        # -----------------------------------------------------
+
+        body = {
+            "title": title,
+            "content": content
+        }
+
+
+        try:
+
+            draft = (
+                self.service
+                .posts()
+                .insert(
+                    blogId=blog_id,
+                    body=body,
+                    isDraft=True
                 )
                 .execute()
             )
@@ -607,15 +560,73 @@ class BloggerPublisher:
 
             self._log(
                 "error",
-                "Blogger post creation failed",
+                "Failed to create Blogger draft",
                 {
                     "blog_id": blog_id,
                     "title": title,
                     "error_type": type(error).__name__,
-                    "error": str(error),
-                    "requested_schedule": body.get(
-                        "published"
-                    )
+                    "error": str(error)
+                }
+            )
+
+            raise
+
+
+        post_id = draft.get(
+            "id"
+        )
+
+
+        if not post_id:
+
+            raise Exception(
+                "Blogger draft created without post ID"
+            )
+
+
+        self._log(
+            "info",
+            "Blogger draft created for scheduling",
+            {
+                "blog_id": blog_id,
+                "post_id": post_id,
+                "title": title,
+                "scheduled_time": scheduled_iso
+            }
+        )
+
+
+        # -----------------------------------------------------
+        # Step 2:
+        # Publish with future publishDate
+        # -----------------------------------------------------
+
+        try:
+
+            result = (
+                self.service
+                .posts()
+                .publish(
+                    blogId=blog_id,
+                    postId=post_id,
+                    publishDate=scheduled_iso
+                )
+                .execute()
+            )
+
+
+        except Exception as error:
+
+            self._log(
+                "error",
+                "Failed to schedule Blogger post",
+                {
+                    "blog_id": blog_id,
+                    "post_id": post_id,
+                    "title": title,
+                    "scheduled_time": scheduled_iso,
+                    "error_type": type(error).__name__,
+                    "error": str(error)
                 }
             )
 
@@ -623,19 +634,30 @@ class BloggerPublisher:
 
 
         # -----------------------------------------------------
-        # Success Log
+        # Safety verification
         # -----------------------------------------------------
+
+        result_published = result.get(
+            "published"
+        )
+
+
+        result_status = result.get(
+            "status"
+        )
+
 
         self._log(
             "info",
-            "Blogger post created",
+            "Blogger post scheduled",
             {
                 "blog_id": blog_id,
+                "post_id": post_id,
                 "title": title,
-                "post_id": result.get("id"),
-                "status": result.get("status"),
-                "url": result.get("url"),
-                "published": result.get("published")
+                "scheduled_time": scheduled_iso,
+                "published": result_published,
+                "status": result_status,
+                "url": result.get("url")
             }
         )
 
