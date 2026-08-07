@@ -1,0 +1,76 @@
+name: Blogger Auto Post V1.1
+
+
+on:
+
+  schedule:
+
+    # ทำงานทุกวัน เวลา 09:00 UTC
+
+    - cron: "0 9 * * *"
+
+
+  workflow_dispatch:
+
+
+
+jobs:
+
+
+  auto-post:
+
+
+    runs-on: ubuntu-latest
+
+
+
+    steps:
+
+
+      - name: Checkout Repository
+
+        uses: actions/checkout@v4
+
+
+
+      - name: Setup Python
+
+        uses: actions/setup-python@v5
+
+        with:
+
+          python-version: "3.11"
+
+
+
+      - name: Install Dependencies
+
+        run: |
+
+          pip install -r requirements.txt
+
+
+
+      - name: Run Blogger Auto Post
+
+        env:
+
+          GEMINI_API_KEY:
+            ${{ secrets.GEMINI_API_KEY }}
+
+
+          MAIN_REFRESH_TOKEN:
+            ${{ secrets.MAIN_REFRESH_TOKEN }}
+
+
+          MAIN_CLIENT_ID:
+            ${{ secrets.MAIN_CLIENT_ID }}
+
+
+          MAIN_CLIENT_SECRET:
+            ${{ secrets.MAIN_CLIENT_SECRET }}
+
+
+        run: |
+
+          python main.py

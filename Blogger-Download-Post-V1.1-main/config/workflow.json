@@ -1,0 +1,10 @@
+{
+  "mode": "production",
+  "steps": {
+    "generate_topics": true,
+    "search_download": true,
+    "write_article": true,
+    "find_images": true,
+    "publish": true
+  }
+}
