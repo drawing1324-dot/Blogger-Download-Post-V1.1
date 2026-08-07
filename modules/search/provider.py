@@ -1,15 +1,15 @@
 """
 Project : Blogger Download Auto Post V1.1
 Module  : Search Provider
-Version : 1.1.2
+Version : 1.1.3
 
 หน้าที่:
-
 - ค้นหาแหล่งดาวน์โหลดจาก Search Engine
 - รองรับการจำกัด source ด้วย domain
 - รองรับ DuckDuckGo HTML / Lite
 - ตรวจสอบผลลัพธ์ให้ตรงกับ source จริง
 - ป้องกัน placeholder / redirect ของ DuckDuckGo
+- รองรับ HTTP 202
 - ส่งผลลัพธ์กลับในรูปแบบเดียวกับระบบเดิม
 """
 
@@ -51,6 +51,7 @@ class SearchProvider:
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/131.0.0.0 Safari/537.36",
+
         "Mozilla/5.0 (X11; Linux x86_64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/131.0.0.0 Safari/537.36",
@@ -61,85 +62,56 @@ class SearchProvider:
         self.config = config or {}
         self.logger = logger
 
+        search_config = self.config.get(
+            "search",
+            {}
+        )
+
         self.timeout = int(
-            self.config.get(
-                "search",
-                {}
-            ).get(
+            search_config.get(
                 "timeout",
                 15
             )
         )
 
         self.max_results = int(
-            self.config.get(
-                "search",
-                {}
-            ).get(
+            search_config.get(
                 "max_results",
                 5
             )
         )
 
-    # ---------------------------------------------------------
-    # Logging
-    # ---------------------------------------------------------
+    # =========================================================
+    # LOGGING
+    # =========================================================
 
     def _log_info(self, message, data=None):
 
         if self.logger:
-            self.logger.info(message, data)
+            self.logger.info(
+                message,
+                data
+            )
 
     def _log_warning(self, message, data=None):
 
         if self.logger:
-            self.logger.warning(message, data)
+            self.logger.warning(
+                message,
+                data
+            )
 
     def _log_error(self, message, data=None):
 
         if self.logger:
-            self.logger.error(message, data)
-
-    # ---------------------------------------------------------
-    # URL
-    # ---------------------------------------------------------
-
-    def build_search_url(
-        self,
-        keyword,
-        source=None,
-        endpoint=None
-    ):
-
-        query = str(keyword or "").strip()
-
-        if source:
-
-            domain = self.SOURCE_DOMAINS.get(
-                source,
-                source
+            self.logger.error(
+                message,
+                data
             )
 
-            if domain and "." in domain:
-
-                query += (
-                    f" site:{domain}"
-                )
-
-        endpoint = (
-            endpoint
-            or self.SEARCH_ENDPOINTS[0]
-        )
-
-        return (
-            endpoint
-            + "?q="
-            + urllib.parse.quote_plus(query)
-        )
-
-    # ---------------------------------------------------------
-    # Domain
-    # ---------------------------------------------------------
+    # =========================================================
+    # DOMAIN
+    # =========================================================
 
     @classmethod
     def _source_domain(cls, source):
@@ -178,9 +150,12 @@ class SearchProvider:
             hostname = (
                 parsed.hostname
                 or ""
-            ).lower()
+            ).lower().strip()
 
-            domain = domain.lower().strip()
+            domain = (
+                domain.lower()
+                .strip()
+            )
 
             if hostname == domain:
                 return True
@@ -195,9 +170,50 @@ class SearchProvider:
 
         return False
 
-    # ---------------------------------------------------------
-    # DuckDuckGo redirect
-    # ---------------------------------------------------------
+    # =========================================================
+    # BUILD SEARCH URL
+    # =========================================================
+
+    def build_search_url(
+        self,
+        keyword,
+        source=None,
+        endpoint=None
+    ):
+
+        query = str(
+            keyword or ""
+        ).strip()
+
+        if source:
+
+            domain = self.SOURCE_DOMAINS.get(
+                source,
+                source
+            )
+
+            if domain and "." in domain:
+
+                query += (
+                    f" site:{domain}"
+                )
+
+        endpoint = (
+            endpoint
+            or self.SEARCH_ENDPOINTS[0]
+        )
+
+        return (
+            endpoint
+            + "?q="
+            + urllib.parse.quote_plus(
+                query
+            )
+        )
+
+    # =========================================================
+    # DUCKDUCKGO URL
+    # =========================================================
 
     @staticmethod
     def _unwrap_duckduckgo_url(url):
@@ -206,13 +222,14 @@ class SearchProvider:
             return None
 
         url = unescape(
-            url.strip()
+            str(url).strip()
         )
 
         if url.startswith("//"):
             url = "https:" + url
 
-        # Relative DDG URLs are not actual results.
+        # Relative URLs such as /html/ or /lite/
+        # are not actual search results.
         if url.startswith("/"):
             return None
 
@@ -227,7 +244,6 @@ class SearchProvider:
                 or ""
             ).lower()
 
-            # DuckDuckGo redirect
             if hostname in {
                 "duckduckgo.com",
                 "www.duckduckgo.com",
@@ -238,11 +254,18 @@ class SearchProvider:
                 )
 
                 target = (
-                    params.get("uddg", [None])[0]
-                    or params.get("rut", [None])[0]
+                    params.get(
+                        "uddg",
+                        [None]
+                    )[0]
+                    or params.get(
+                        "rut",
+                        [None]
+                    )[0]
                 )
 
                 if target:
+
                     return urllib.parse.unquote(
                         target
                     )
@@ -254,9 +277,9 @@ class SearchProvider:
 
         return url
 
-    # ---------------------------------------------------------
-    # HTML cleaning
-    # ---------------------------------------------------------
+    # =========================================================
+    # CLEAN TITLE
+    # =========================================================
 
     @staticmethod
     def _clean_title(value):
@@ -282,9 +305,9 @@ class SearchProvider:
 
         return value.strip()
 
-    # ---------------------------------------------------------
-    # HTML parser
-    # ---------------------------------------------------------
+    # =========================================================
+    # EXTRACT RESULTS
+    # =========================================================
 
     @classmethod
     def _extract_results(
@@ -292,50 +315,71 @@ class SearchProvider:
         html
     ):
 
-        results = []
-
         if not html:
-            return results
+            return []
+
+        results = []
 
         # -----------------------------------------------------
         # Standard DDG HTML
         # -----------------------------------------------------
 
-        pattern = re.compile(
-            r"""
-            <a
-                [^>]*?
-                class\s*=\s*["'][^"']*result__a[^"']*["']
-                [^>]*?
-                href\s*=\s*["']([^"']+)["']
-                [^>]*>
-                (.*?)
-            </a>
-            """,
-            re.IGNORECASE
-            | re.DOTALL
-            | re.VERBOSE
-        )
+        patterns = [
 
-        for match in pattern.finditer(
-            html
-        ):
+            r'<a[^>]+class=["\'][^"\']*result__a[^"\']*["\'][^>]+href=["\']([^"\']+)["\'][^>]*>(.*?)</a>',
 
-            raw_url = match.group(1)
-            raw_title = match.group(2)
+            r'<a[^>]+href=["\']([^"\']+)["\'][^>]+class=["\'][^"\']*result__a[^"\']*["\'][^>]*>(.*?)</a>',
+
+        ]
+
+        matches = []
+
+        for pattern in patterns:
+
+            found = re.findall(
+                pattern,
+                html,
+                re.I | re.S
+            )
+
+            if found:
+                matches.extend(
+                    found
+                )
+
+        for raw_url, raw_title in matches:
 
             url = cls._unwrap_duckduckgo_url(
                 raw_url
             )
 
+            if not url:
+                continue
+
             title = cls._clean_title(
                 raw_title
             )
 
-            if not url:
+            if not title:
                 continue
 
-            if not title:
+            try:
+
+                hostname = (
+                    urllib.parse.urlparse(
+                        url
+                    ).hostname
+                    or ""
+                ).lower()
+
+                # Never return DDG itself.
+                if hostname in {
+                    "duckduckgo.com",
+                    "www.duckduckgo.com",
+                }:
+                    continue
+
+            except Exception:
                 continue
 
             results.append(
@@ -346,73 +390,6 @@ class SearchProvider:
             )
 
         # -----------------------------------------------------
-        # Lite / alternate anchor format
-        # -----------------------------------------------------
-
-        if not results:
-
-            pattern = re.compile(
-                r"""
-                <a
-                    [^>]*?
-                    href\s*=\s*["']([^"']+)["']
-                    [^>]*>
-                    (.*?)
-                </a>
-                """,
-                re.IGNORECASE
-                | re.DOTALL
-                | re.VERBOSE
-            )
-
-            for match in pattern.finditer(
-                html
-            ):
-
-                raw_url = match.group(1)
-                raw_title = match.group(2)
-
-                url = cls._unwrap_duckduckgo_url(
-                    raw_url
-                )
-
-                title = cls._clean_title(
-                    raw_title
-                )
-
-                if not url:
-                    continue
-
-                if not title:
-                    continue
-
-                # Ignore navigation / DDG pages.
-                try:
-
-                    hostname = (
-                        urllib.parse.urlparse(
-                            url
-                        ).hostname
-                        or ""
-                    ).lower()
-
-                    if hostname in {
-                        "duckduckgo.com",
-                        "www.duckduckgo.com",
-                    }:
-                        continue
-
-                except Exception:
-                    continue
-
-                results.append(
-                    {
-                        "title": title,
-                        "url": url
-                    }
-                )
-
-        # -----------------------------------------------------
         # Remove duplicates
         # -----------------------------------------------------
 
@@ -421,74 +398,27 @@ class SearchProvider:
 
         for item in results:
 
-            url = item["url"]
+            url = item.get(
+                "url"
+            )
+
+            if not url:
+                continue
 
             if url in seen:
                 continue
 
             seen.add(url)
-            unique.append(item)
+
+            unique.append(
+                item
+            )
 
         return unique
 
-    # ---------------------------------------------------------
-    # Search HTTP request
-    # ---------------------------------------------------------
-
-    def _request(
-        self,
-        endpoint,
-        url
-    ):
-
-        headers = {
-            "User-Agent": self.USER_AGENTS[0],
-            "Accept": (
-                "text/html,"
-                "application/xhtml+xml,"
-                "application/xml;q=0.9,"
-                "*/*;q=0.8"
-            ),
-            "Accept-Language": (
-                "en-US,en;q=0.9"
-            ),
-            "Referer": (
-                "https://duckduckgo.com/"
-            ),
-            "Connection": "keep-alive",
-        }
-
-        self._log_info(
-            "Search request started",
-            {
-                "endpoint": endpoint,
-                "url": url
-            }
-        )
-
-        response = requests.get(
-            url,
-            headers=headers,
-            timeout=self.timeout,
-            allow_redirects=True
-        )
-
-        content = response.text or ""
-
-        self._log_info(
-            "Search HTTP response",
-            {
-                "status_code": response.status_code,
-                "final_url": response.url,
-                "content_length": len(content)
-            }
-        )
-
-        return response
-
-    # ---------------------------------------------------------
-    # Find matching source
-    # ---------------------------------------------------------
+    # =========================================================
+    # FIND MATCHING RESULT
+    # =========================================================
 
     @classmethod
     def _find_matching_result(
@@ -510,9 +440,78 @@ class SearchProvider:
 
         return None
 
-    # ---------------------------------------------------------
-    # Search
-    # ---------------------------------------------------------
+    # =========================================================
+    # HTTP REQUEST
+    # =========================================================
+
+    def _request(
+        self,
+        endpoint,
+        url
+    ):
+
+        headers = {
+
+            "User-Agent":
+                self.USER_AGENTS[0],
+
+            "Accept":
+                (
+                    "text/html,"
+                    "application/xhtml+xml,"
+                    "application/xml;q=0.9,"
+                    "*/*;q=0.8"
+                ),
+
+            "Accept-Language":
+                "en-US,en;q=0.9",
+
+            "Referer":
+                "https://duckduckgo.com/",
+
+            "Connection":
+                "keep-alive",
+        }
+
+        self._log_info(
+            "Search request started",
+            {
+                "endpoint": endpoint,
+                "url": url
+            }
+        )
+
+        response = requests.get(
+            url,
+            headers=headers,
+            timeout=self.timeout,
+            allow_redirects=True
+        )
+
+        content = (
+            response.text
+            or ""
+        )
+
+        self._log_info(
+            "Search HTTP response",
+            {
+                "status_code":
+                    response.status_code,
+
+                "final_url":
+                    response.url,
+
+                "content_length":
+                    len(content)
+            }
+        )
+
+        return response
+
+    # =========================================================
+    # SEARCH
+    # =========================================================
 
     def search(
         self,
@@ -520,23 +519,33 @@ class SearchProvider:
         source=None
     ):
 
-        result = {
-            "keyword": keyword,
-            "source": source or "search",
-            "search_url": self.build_search_url(
-                keyword,
-                source
-            ),
-            "found_url": None,
-            "results": [],
-            "checked_at": datetime.now().isoformat(),
-        }
-
-        attempts = []
-
         keyword = str(
             keyword or ""
         ).strip()
+
+        result = {
+
+            "keyword":
+                keyword,
+
+            "source":
+                source or "search",
+
+            "search_url":
+                self.build_search_url(
+                    keyword,
+                    source
+                ),
+
+            "found_url":
+                None,
+
+            "results":
+                [],
+
+            "checked_at":
+                datetime.now().isoformat(),
+        }
 
         if not keyword:
 
@@ -546,9 +555,11 @@ class SearchProvider:
 
             return result
 
-        # -----------------------------------------------------
-        # Try all DDG endpoints
-        # -----------------------------------------------------
+        attempts = []
+
+        # =====================================================
+        # TRY DDG ENDPOINTS
+        # =====================================================
 
         for endpoint in self.SEARCH_ENDPOINTS:
 
@@ -565,55 +576,45 @@ class SearchProvider:
                     search_url
                 )
 
+                content = (
+                    response.text
+                    or ""
+                )
+
                 attempt = {
-                    "endpoint": endpoint,
-                    "status_code": response.status_code,
-                    "content_length": len(
-                        response.text or ""
-                    ),
-                    "error": None,
+
+                    "endpoint":
+                        endpoint,
+
+                    "status_code":
+                        response.status_code,
+
+                    "content_length":
+                        len(content),
+
+                    "error":
+                        None,
+
                 }
 
-                # DDG may return 202 while still giving
-                # a usable response. Do not reject solely
-                # because of 202.
-                if response.status_code >= 400:
-
-                    attempt["error"] = (
-                        f"HTTP {response.status_code}"
-                    )
-
-                    attempts.append(
-                        attempt
-                    )
-
-                    self._log_warning(
-                        "Search HTTP request failed",
-                        {
-                            "keyword": keyword,
-                            "source": source,
-                            "status_code": (
-                                response.status_code
-                            )
-                        }
-                    )
-
-                    continue
+                # -------------------------------------------------
+                # 202 is not automatically failure.
+                # -------------------------------------------------
 
                 results = self._extract_results(
-                    response.text
+                    content
                 )
 
-                attempt["result_count"] = len(
-                    results
-                )
+                attempt[
+                    "result_count"
+                ] = len(results)
 
                 attempts.append(
                     attempt
                 )
 
                 # -------------------------------------------------
-                # Source matching
+                # Only accept source-matching URL.
                 # -------------------------------------------------
 
                 matching = self._find_matching_result(
@@ -623,61 +624,79 @@ class SearchProvider:
 
                 if matching:
 
-                    # Keep a limited list for downstream code.
-                    result["results"] = results[
+                    result[
+                        "results"
+                    ] = results[
                         :self.max_results
                     ]
 
-                    result["found_url"] = (
-                        matching["url"]
-                    )
-
-                    result["search_url"] = (
-                        search_url
-                    )
+                    result[
+                        "found_url"
+                    ] = matching[
+                        "url"
+                    ]
 
                     self._log_info(
                         "Search source matched",
                         {
-                            "keyword": keyword,
-                            "source": source,
-                            "result_count": len(
-                                results
-                            ),
-                            "found_url": (
+                            "keyword":
+                                keyword,
+
+                            "source":
+                                source,
+
+                            "result_count":
+                                len(results),
+
+                            "found_url":
                                 matching["url"]
-                            )
                         }
                     )
 
-                    return result
+                    result[
+                        "diagnosis"
+                    ] = {
+                        "attempts":
+                            attempts
+                    }
 
-                # -------------------------------------------------
-                # No matching source
-                # -------------------------------------------------
+                    return result
 
                 self._log_warning(
                     "Search results found but source did not match",
                     {
-                        "keyword": keyword,
-                        "source": source,
-                        "result_count": len(
-                            results
-                        ),
-                        "results": results[
-                            :self.max_results
-                        ]
+                        "keyword":
+                            keyword,
+
+                        "source":
+                            source,
+
+                        "result_count":
+                            len(results),
+
+                        "results":
+                            results[
+                                :self.max_results
+                            ]
                     }
                 )
 
-            except requests.RequestException as error:
+            except Exception as error:
 
                 attempt = {
-                    "endpoint": endpoint,
-                    "status_code": None,
-                    "content_length": 0,
-                    "result_count": 0,
-                    "error": str(error),
+
+                    "endpoint":
+                        endpoint,
+
+                    "status_code":
+                        None,
+
+                    "content_length":
+                        0,
+
+                    "error":
+                        str(error),
+
                 }
 
                 attempts.append(
@@ -687,53 +706,50 @@ class SearchProvider:
                 self._log_warning(
                     "Search request failed",
                     {
-                        "keyword": keyword,
-                        "source": source,
-                        "endpoint": endpoint,
-                        "error": str(error)
+                        "keyword":
+                            keyword,
+
+                        "source":
+                            source,
+
+                        "endpoint":
+                            endpoint,
+
+                        "error":
+                            str(error)
                     }
                 )
 
-            except Exception as error:
+        # =====================================================
+        # NOTHING MATCHED
+        # =====================================================
 
-                attempt = {
-                    "endpoint": endpoint,
-                    "status_code": None,
-                    "content_length": 0,
-                    "result_count": 0,
-                    "error": str(error),
-                }
-
-                attempts.append(
-                    attempt
-                )
-
-                self._log_error(
-                    "Search parser failed",
-                    {
-                        "keyword": keyword,
-                        "source": source,
-                        "endpoint": endpoint,
-                        "error": str(error)
-                    }
-                )
-
-        # ---------------------------------------------------------
-        # Failed after all endpoints
-        # ---------------------------------------------------------
+        result[
+            "diagnosis"
+        ] = {
+            "attempts":
+                attempts
+        }
 
         self._log_warning(
             "Search completed without matching source",
             {
-                "keyword": keyword,
-                "source": source,
-                "result_count": len(
-                    result["results"]
-                ),
-                "found_url": result["found_url"],
-                "diagnosis": {
-                    "attempts": attempts
-                }
+                "keyword":
+                    keyword,
+
+                "source":
+                    source,
+
+                "result_count":
+                    0,
+
+                "found_url":
+                    None,
+
+                "diagnosis":
+                    result[
+                        "diagnosis"
+                    ]
             }
         )
 
