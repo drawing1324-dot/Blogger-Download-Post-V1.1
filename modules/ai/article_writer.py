@@ -1,62 +1,161 @@
-"""AI article writer for V1.1."""
+"""
+Project : Blogger Download Auto Post V1.1
+Module  : AI Article Writer
+Version : 1.3.0
+
+หน้าที่:
+
+- สร้างบทความด้วย AI
+- สร้าง Dynamic Labels ตามหัวข้อและเนื้อหาของบทความ
+- ตรวจสอบและทำความสะอาด HTML
+- ตรวจสอบ Image URL
+- ป้องกัน PDF / Document URL ถูกใช้เป็นรูปภาพ
+- เพิ่ม Image อัตโนมัติเมื่อ AI ไม่ได้ใส่รูป
+- เพิ่ม Download Section เมื่อมี Source URL
+- แปลง Markdown Link เป็น HTML
+- ส่งผลลัพธ์กลับในรูปแบบที่ Blogger Publisher ใช้งานได้
+"""
 
 from datetime import datetime
 import html
+import json
 import re
 from urllib.parse import urlparse
 
 
 class ArticleWriter:
 
-    def __init__(self, ai_provider, config, logger=None):
+    def __init__(
+        self,
+        ai_provider,
+        config,
+        logger=None
+    ):
         self.ai = ai_provider
         self.config = config or {}
         self.logger = logger
 
-    def get_article_prompt(self, blog_type):
-        data = self.config.get("prompts", {}).get(blog_type)
+    # =========================================================
+    # Logger
+    # =========================================================
+
+    def _log(
+        self,
+        level,
+        message,
+        data=None
+    ):
+
+        if not self.logger:
+            return
+
+        method = getattr(
+            self.logger,
+            level,
+            None
+        )
+
+        if method:
+            method(
+                message,
+                data
+            )
+
+    # =========================================================
+    # Article Prompt
+    # =========================================================
+
+    def get_article_prompt(
+        self,
+        blog_type
+    ):
+
+        data = (
+            self.config
+            .get("prompts", {})
+            .get(blog_type)
+        )
 
         if not data:
             raise Exception(
                 f"Article prompt not found: {blog_type}"
             )
 
-        return data.get("article", "")
+        return data.get(
+            "article",
+            ""
+        )
+
+    # =========================================================
+    # URL Validation
+    # =========================================================
 
     @staticmethod
-    def _valid_url(url):
-        """Return True only for normal HTTP/HTTPS URLs."""
+    def _valid_url(
+        url
+    ):
+        """
+        Return True only for normal HTTP/HTTPS URLs.
+        """
+
         if not url:
             return False
 
         try:
-            parsed = urlparse(str(url).strip())
 
-            return parsed.scheme.lower() in (
-                "http",
-                "https",
-            ) and bool(parsed.netloc)
+            parsed = urlparse(
+                str(url).strip()
+            )
+
+            return (
+                parsed.scheme.lower()
+                in (
+                    "http",
+                    "https",
+                )
+                and bool(
+                    parsed.netloc
+                )
+            )
 
         except Exception:
+
             return False
 
+    # =========================================================
+    # Image URL Validation
+    # =========================================================
+
     @staticmethod
-    def _valid_image_url(url):
+    def _valid_image_url(
+        url
+    ):
         """
-        Return True only for URLs that are suitable for <img>.
+        Return True only for URLs suitable for <img>.
 
         PDF/document URLs are explicitly rejected.
         """
+
         if not url:
             return False
 
         try:
-            parsed = urlparse(str(url).strip())
-            path = parsed.path.lower()
 
-            if parsed.scheme.lower() not in (
-                "http",
-                "https",
+            parsed = urlparse(
+                str(url).strip()
+            )
+
+            path = (
+                parsed.path
+                .lower()
+            )
+
+            if (
+                parsed.scheme.lower()
+                not in (
+                    "http",
+                    "https",
+                )
             ):
                 return False
 
@@ -70,9 +169,18 @@ class ArticleWriter:
                 ".txt",
                 ".doc",
                 ".docx",
+                ".xls",
+                ".xlsx",
+                ".ppt",
+                ".pptx",
+                ".zip",
+                ".rar",
+                ".7z",
             )
 
-            if path.endswith(rejected_extensions):
+            if path.endswith(
+                rejected_extensions
+            ):
                 return False
 
             allowed_extensions = (
@@ -84,28 +192,42 @@ class ArticleWriter:
                 ".avif",
             )
 
-            # If the URL clearly has an image extension, accept it.
-            if path.endswith(allowed_extensions):
+            # ถ้า URL มีนามสกุลรูปภาพชัดเจน
+            # ให้ยอมรับทันที
+            if path.endswith(
+                allowed_extensions
+            ):
                 return True
 
-            # Some image services use URLs without extensions.
-            # The ImageProvider has already validated those URLs.
+            # Image service บางแห่งไม่มี extension
+            # ImageProvider เป็นผู้ตรวจสอบ URL มาแล้ว
             return True
 
         except Exception:
+
             return False
 
+    # =========================================================
+    # Clean AI Output
+    # =========================================================
+
     @staticmethod
-    def _clean_ai_output(content):
+    def _clean_ai_output(
+        content
+    ):
         """
-        Remove accidental Markdown/code fences from Gemini output.
+        Remove accidental Markdown/code fences
+        from AI output.
         """
+
         if not content:
             return ""
 
-        content = content.strip()
+        content = str(
+            content
+        ).strip()
 
-        # Remove ```html / ```HTML / ```.
+        # Remove opening code fence
         content = re.sub(
             r"^\s*```(?:html)?\s*",
             "",
@@ -113,6 +235,7 @@ class ArticleWriter:
             flags=re.IGNORECASE,
         )
 
+        # Remove closing code fence
         content = re.sub(
             r"\s*```\s*$",
             "",
@@ -122,13 +245,319 @@ class ArticleWriter:
 
         return content.strip()
 
+    # =========================================================
+    # Parse Structured AI Response
+    # =========================================================
+
     @staticmethod
-    def _remove_invalid_images(content):
+    def _extract_json(
+        content
+    ):
         """
-        Remove <img> elements that point to PDFs or obvious documents.
+        Extract JSON object from AI response.
+
+        รองรับกรณี AI ส่ง:
+        {
+            "content": "...",
+            "labels": [...]
+        }
+
+        หรือส่ง JSON ครอบด้วย ```json ... ```
+        """
+
+        if not content:
+            return None
+
+        text = str(
+            content
+        ).strip()
+
+        # -----------------------------------------------------
+        # Remove code fences
+        # -----------------------------------------------------
+
+        text = re.sub(
+            r"^\s*```(?:json)?\s*",
+            "",
+            text,
+            flags=re.IGNORECASE,
+        )
+
+        text = re.sub(
+            r"\s*```\s*$",
+            "",
+            text,
+            flags=re.IGNORECASE,
+        )
+
+        text = text.strip()
+
+        # -----------------------------------------------------
+        # Direct JSON
+        # -----------------------------------------------------
+
+        try:
+
+            parsed = json.loads(
+                text
+            )
+
+            if isinstance(
+                parsed,
+                dict
+            ):
+                return parsed
+
+        except Exception:
+            pass
+
+        # -----------------------------------------------------
+        # Try extracting first JSON object
+        # -----------------------------------------------------
+
+        start = text.find(
+            "{"
+        )
+
+        end = text.rfind(
+            "}"
+        )
+
+        if (
+            start >= 0
+            and end > start
+        ):
+
+            candidate = text[
+                start:end + 1
+            ]
+
+            try:
+
+                parsed = json.loads(
+                    candidate
+                )
+
+                if isinstance(
+                    parsed,
+                    dict
+                ):
+                    return parsed
+
+            except Exception:
+                pass
+
+        return None
+
+    # =========================================================
+    # Clean Labels
+    # =========================================================
+
+    @staticmethod
+    def _clean_labels(
+        labels,
+        topic=""
+    ):
+        """
+        Clean and normalize AI-generated labels.
+
+        Labels are dynamic and are never hard-coded.
+
+        Rules:
+        - string เท่านั้น
+        - ไม่เอา #hashtag
+        - ตัดช่องว่างส่วนเกิน
+        - ตัดเครื่องหมายที่ไม่จำเป็น
+        - ไม่ซ้ำกัน
+        - จำกัดสูงสุด 10 labels
+        """
+
+        if not isinstance(
+            labels,
+            list
+        ):
+            labels = []
+
+        cleaned = []
+
+        for label in labels:
+
+            if label is None:
+                continue
+
+            label = str(
+                label
+            ).strip()
+
+            if not label:
+                continue
+
+            # Remove leading hashtag
+            label = re.sub(
+                r"^#+",
+                "",
+                label
+            ).strip()
+
+            # Replace line breaks / tabs
+            label = re.sub(
+                r"[\r\n\t]+",
+                " ",
+                label
+            )
+
+            # Collapse spaces
+            label = re.sub(
+                r"\s+",
+                " ",
+                label
+            ).strip()
+
+            # Remove wrapping quotes
+            label = label.strip(
+                "\"'"
+            ).strip()
+
+            # Remove leading/trailing punctuation
+            label = re.sub(
+                r"^[,\.;:|]+",
+                "",
+                label
+            )
+
+            label = re.sub(
+                r"[,\.;:|]+$",
+                "",
+                label
+            )
+
+            label = label.strip()
+
+            if not label:
+                continue
+
+            # Avoid excessively long labels
+            if len(label) > 80:
+                label = label[:80].rstrip()
+
+            # Case-insensitive duplicate detection
+            duplicate_key = (
+                label.casefold()
+            )
+
+            if any(
+                existing.casefold()
+                == duplicate_key
+                for existing in cleaned
+            ):
+                continue
+
+            cleaned.append(
+                label
+            )
+
+            # Blogger labels should remain manageable.
+            if len(cleaned) >= 10:
+                break
+
+        return cleaned
+
+    # =========================================================
+    # Fallback Labels
+    # =========================================================
+
+    @staticmethod
+    def _fallback_labels(
+        topic
+    ):
+        """
+        Fallback only when AI completely fails to return labels.
+
+        ไม่ใช้รายการ Label แบบฟิกซ์
+
+        จะนำคำสำคัญจาก Topic มาใช้แทน
+        เพื่อให้โพสต์ยังมี Label ที่สัมพันธ์กับหัวข้อ
+        """
+
+        if not topic:
+            return []
+
+        text = str(
+            topic
+        ).strip()
+
+        if not text:
+            return []
+
+        # Remove punctuation
+        text = re.sub(
+            r"[^\w\s\-&]+",
+            " ",
+            text,
+            flags=re.UNICODE,
+        )
+
+        words = [
+            word.strip()
+            for word in text.split()
+            if word.strip()
+        ]
+
+        if not words:
+            return []
+
+        labels = []
+
+        # Full topic as first dynamic label
+        labels.append(
+            " ".join(words[:8])
+        )
+
+        # Add meaningful multi-word chunks
+        if len(words) >= 2:
+
+            for index in range(
+                len(words) - 1
+            ):
+
+                phrase = (
+                    f"{words[index]} "
+                    f"{words[index + 1]}"
+                )
+
+                if len(
+                    phrase
+                ) >= 3:
+
+                    labels.append(
+                        phrase
+                    )
+
+                if len(
+                    labels
+                ) >= 5:
+                    break
+
+        return ArticleWriter._clean_labels(
+            labels,
+            topic
+        )
+
+    # =========================================================
+    # Remove Invalid Images
+    # =========================================================
+
+    @staticmethod
+    def _remove_invalid_images(
+        content
+    ):
+        """
+        Remove <img> elements pointing to PDFs
+        or obvious document URLs.
 
         Valid images are left untouched.
         """
+
         if not content:
             return content
 
@@ -137,8 +566,13 @@ class ArticleWriter:
             re.IGNORECASE | re.DOTALL,
         )
 
-        def replace_image(match):
-            tag = match.group(0)
+        def replace_image(
+            match
+        ):
+
+            tag = match.group(
+                0
+            )
 
             src_match = re.search(
                 r'\bsrc\s*=\s*["\']([^"\']+)["\']',
@@ -150,10 +584,14 @@ class ArticleWriter:
                 return ""
 
             src = html.unescape(
-                src_match.group(1)
+                src_match.group(
+                    1
+                )
             ).strip()
 
-            if ArticleWriter._valid_image_url(src):
+            if ArticleWriter._valid_image_url(
+                src
+            ):
                 return tag
 
             return ""
@@ -163,12 +601,21 @@ class ArticleWriter:
             content,
         )
 
+    # =========================================================
+    # Ensure Image
+    # =========================================================
+
     @staticmethod
-    def _ensure_image(content, image_url, title):
+    def _ensure_image(
+        content,
+        image_url,
+        title
+    ):
         """
-        Add one image when a valid image URL exists and the AI
-        did not already include one.
+        Add one image when a valid image URL exists
+        and the AI did not already include one.
         """
+
         if not image_url:
             return content
 
@@ -181,7 +628,7 @@ class ArticleWriter:
             return content
 
         safe_url = html.escape(
-            image_url,
+            str(image_url),
             quote=True,
         )
 
@@ -191,12 +638,12 @@ class ArticleWriter:
         )
 
         image_html = (
-            '<p>'
+            "<p>"
             f'<img src="{safe_url}" '
             f'alt="{safe_alt}" '
             'style="height:auto;max-width:100%;'
             'margin:15px 0;" />'
-            '</p>'
+            "</p>"
         )
 
         return (
@@ -205,12 +652,19 @@ class ArticleWriter:
             + content
         )
 
+    # =========================================================
+    # Contains Download Link
+    # =========================================================
+
     @staticmethod
-    def _contains_download_link(content):
+    def _contains_download_link(
+        content
+    ):
         """
-        Check whether the generated HTML already contains
+        Check whether generated HTML already contains
         a real href attribute.
         """
+
         return bool(
             re.search(
                 r"<a\b[^>]*\bhref\s*=",
@@ -219,16 +673,28 @@ class ArticleWriter:
             )
         )
 
+    # =========================================================
+    # Remove Markdown Links
+    # =========================================================
+
     @staticmethod
-    def _remove_markdown_links(content):
+    def _remove_markdown_links(
+        content
+    ):
         """
         Convert simple Markdown links into HTML links.
 
         Example:
+
         [Download](https://example.com)
-        ->
-        <a href="https://example.com">Download</a>
+
+        becomes:
+
+        <a href="https://example.com">
+            Download
+        </a>
         """
+
         if not content:
             return content
 
@@ -237,13 +703,20 @@ class ArticleWriter:
             re.IGNORECASE,
         )
 
-        def replace_link(match):
+        def replace_link(
+            match
+        ):
+
             text = html.escape(
-                match.group(1).strip()
+                match.group(
+                    1
+                ).strip()
             )
 
             url = html.escape(
-                match.group(2).strip(),
+                match.group(
+                    2
+                ).strip(),
                 quote=True,
             )
 
@@ -260,16 +733,23 @@ class ArticleWriter:
             content,
         )
 
+    # =========================================================
+    # Append Download Section
+    # =========================================================
+
     @staticmethod
     def _append_download_section(
         content,
-        source_url,
+        source_url
     ):
         """
-        Add a proper Download section only when a valid
-        source URL exists and the article does not already
-        contain a link.
+        Add a proper Download section only when:
+
+        - source URL exists
+        - URL is valid
+        - article does not already contain a link
         """
+
         if not source_url:
             return content
 
@@ -284,19 +764,21 @@ class ArticleWriter:
             return content
 
         safe_url = html.escape(
-            source_url,
+            str(source_url),
             quote=True,
         )
 
         section = f"""
+<section>
 <h2>Download</h2>
 <p>
 <a href="{safe_url}"
    target="_blank"
    rel="noopener">
-   Download or view the resource
+   Download or view the file
 </a>
 </p>
+</section>
 """
 
         return (
@@ -305,6 +787,10 @@ class ArticleWriter:
             + section.strip()
         )
 
+    # =========================================================
+    # Build Prompt
+    # =========================================================
+
     def build_prompt(
         self,
         blog,
@@ -312,6 +798,17 @@ class ArticleWriter:
         source=None,
         image=None,
     ):
+        """
+        Build structured AI prompt.
+
+        AI ต้องส่งกลับเป็น JSON เพื่อแยก:
+        - content
+        - labels
+
+        Labels ต้องสร้างจากบทความจริง
+        ไม่ใช่ Label แบบฟิกซ์
+        """
+
         source = source or {}
         image = image or {}
 
@@ -323,10 +820,20 @@ class ArticleWriter:
             "image_url"
         )
 
-        return f"""
-{self.get_article_prompt(blog.get("type"))}
+        article_prompt = (
+            self.get_article_prompt(
+                blog.get("type")
+            )
+        )
 
-Topic: {topic}
+        return f"""
+{article_prompt}
+
+Topic:
+{topic}
+
+Blog type:
+{blog.get("type") or "Not specified"}
 
 Download source URL:
 {source_url or "Not found"}
@@ -334,24 +841,63 @@ Download source URL:
 Image URL:
 {image_url or "Not found"}
 
-Requirements:
+IMPORTANT OUTPUT RULES:
+
+Return ONLY one valid JSON object.
+
+Do NOT return Markdown.
+Do NOT return code fences.
+Do NOT return ```json.
+Do NOT add explanations before or after the JSON.
+
+The JSON object MUST have exactly these two main fields:
+
+{{
+  "content": "ARTICLE HTML HERE",
+  "labels": [
+    "Dynamic Label 1",
+    "Dynamic Label 2",
+    "Dynamic Label 3"
+  ]
+}}
+
+CONTENT REQUIREMENTS:
 
 - Write natural English HTML suitable for Blogger.
-- Return only article HTML.
-- Do not use Markdown.
-- Do not use code fences.
-- Do not return ```html or ``` anywhere.
+- The content must be a complete useful article.
 - Explain the downloadable file/resource, format, uses and benefits.
-- Include a clear Download section.
+- Include a clear Download section when a valid source URL is supplied.
 - If a source URL is supplied, link to that exact URL.
 - Never invent a URL.
 - If an image URL is supplied, include one HTML <img> using that exact URL.
-- The image must use a useful alt attribute.
+- The image must have a useful alt attribute.
 - Never use a PDF URL, document URL, or webpage URL as an image source.
 - If no valid image URL exists, do not invent an image URL.
 - If no source URL exists, do not invent a download link.
 - Do not claim licenses, versions, compatibility, prices, or file contents that were not supplied.
+- Do not use Markdown.
+- Do not use code fences.
+
+LABEL REQUIREMENTS:
+
+- Generate Labels specifically for THIS article.
+- Labels must be based on the actual topic and the actual article content.
+- Labels must NOT be a fixed list.
+- Do NOT always use the blog type as a label.
+- Do NOT use generic labels such as "Free Download" unless they are genuinely useful for this specific article.
+- Choose the most relevant search/category concepts from this article.
+- Prefer specific subjects, software, file/resource types, design categories, technical concepts, or meaningful topics mentioned in the article.
+- Do not invent facts that are not supported by the article.
+- Return between 3 and 8 labels.
+- Each label should normally be short and readable.
+- Do not prefix labels with #.
+- Do not include duplicate labels.
+- Labels should be suitable for Blogger's Labels field.
 """
+
+    # =========================================================
+    # Generate
+    # =========================================================
 
     def generate(
         self,
@@ -360,6 +906,10 @@ Requirements:
         source=None,
         image=None,
     ):
+        """
+        Generate article + dynamic labels.
+        """
+
         source = source or {}
         image = image or {}
 
@@ -371,10 +921,11 @@ Requirements:
             "image_url"
         )
 
-        # ---------------------------------------------------------
+        # -----------------------------------------------------
         # Generate article with AI
-        # ---------------------------------------------------------
-        content = self.ai.generate(
+        # -----------------------------------------------------
+
+        raw_response = self.ai.generate(
             self.build_prompt(
                 blog,
                 topic,
@@ -383,36 +934,96 @@ Requirements:
             )
         )
 
+        if not raw_response:
+            raise ValueError(
+                "AI returned empty article response"
+            )
+
+        raw_response = str(
+            raw_response
+        ).strip()
+
+        # -----------------------------------------------------
+        # Parse structured AI response
+        # -----------------------------------------------------
+
+        parsed = self._extract_json(
+            raw_response
+        )
+
+        content = ""
+        labels = []
+
+        if parsed:
+
+            content = parsed.get(
+                "content",
+                ""
+            )
+
+            labels = parsed.get(
+                "labels",
+                []
+            )
+
+        else:
+
+            # -------------------------------------------------
+            # Fallback:
+            # If AI returned plain HTML instead of JSON,
+            # keep the article and generate fallback labels.
+            # -------------------------------------------------
+
+            self._log(
+                "warning",
+                "AI returned non-JSON article response",
+                {
+                    "title": topic
+                }
+            )
+
+            content = raw_response
+
+            labels = []
+
+        # -----------------------------------------------------
+        # Normalize content
+        # -----------------------------------------------------
+
         content = self._clean_ai_output(
             content
         )
 
-        # ---------------------------------------------------------
+        # -----------------------------------------------------
         # Remove accidental Markdown links
-        # ---------------------------------------------------------
+        # -----------------------------------------------------
+
         content = self._remove_markdown_links(
             content
         )
 
-        # ---------------------------------------------------------
+        # -----------------------------------------------------
         # Remove invalid <img> tags
-        # ---------------------------------------------------------
+        # -----------------------------------------------------
+
         content = self._remove_invalid_images(
             content
         )
 
-        # ---------------------------------------------------------
+        # -----------------------------------------------------
         # Add valid image if AI did not include one
-        # ---------------------------------------------------------
+        # -----------------------------------------------------
+
         content = self._ensure_image(
             content,
             image_url,
             topic,
         )
 
-        # ---------------------------------------------------------
+        # -----------------------------------------------------
         # Add Download section if necessary
-        # ---------------------------------------------------------
+        # -----------------------------------------------------
+
         content = self._append_download_section(
             content,
             source_url,
@@ -420,28 +1031,85 @@ Requirements:
 
         content = content.strip()
 
-        # ---------------------------------------------------------
+        # -----------------------------------------------------
+        # Clean AI-generated Labels
+        # -----------------------------------------------------
+
+        labels = self._clean_labels(
+            labels,
+            topic
+        )
+
+        # -----------------------------------------------------
+        # Dynamic fallback
+        #
+        # Only used when AI failed to provide labels.
+        # It is generated from the current topic,
+        # so it is NOT a fixed Label list.
+        # -----------------------------------------------------
+
+        if not labels:
+
+            labels = self._fallback_labels(
+                topic
+            )
+
+            self._log(
+                "warning",
+                "AI labels unavailable; fallback labels generated",
+                {
+                    "title": topic,
+                    "labels": labels
+                }
+            )
+
+        # -----------------------------------------------------
         # Safety check
-        # ---------------------------------------------------------
+        # -----------------------------------------------------
+
         if len(content) < 500:
+
             raise ValueError(
                 "Generated article is too short"
             )
 
+        # -----------------------------------------------------
+        # Build result
+        # -----------------------------------------------------
+
         result = {
             "title": topic,
             "content": content,
-            "blog_id": blog.get("blog_id"),
-            "type": blog.get("type"),
-            "created_at": datetime.now().isoformat(),
+            "labels": labels,
+            "blog_id": blog.get(
+                "blog_id"
+            ),
+            "type": blog.get(
+                "type"
+            ),
+            "created_at": (
+                datetime.now().isoformat()
+            ),
             "status": "draft",
         }
 
+        # -----------------------------------------------------
+        # Logging
+        # -----------------------------------------------------
+
         if self.logger:
+
             self.logger.info(
                 "Article generated",
                 {
                     "title": topic,
+                    "label_count": len(
+                        labels
+                    ),
+                    "labels": labels,
+                    "content_length": len(
+                        content
+                    )
                 },
             )
 
